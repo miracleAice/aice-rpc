@@ -17,5 +17,6 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.46</lombok.version>
+        <junit.version>5.14.2</junit.version>
     </properties>
 </project>
