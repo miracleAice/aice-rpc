@@ -21,7 +21,7 @@ public class JdkSerializer implements Serializer{
         }
         try (
                 ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
-                ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream);
+                ObjectOutputStream objectOutputStream = new ObjectOutputStream(byteArrayOutputStream)
                 ) {
             // 将对象写入字节输出流
             objectOutputStream.writeObject(object);
@@ -48,7 +48,7 @@ public class JdkSerializer implements Serializer{
         }
         try (
                 ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(bytes);
-                ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream);
+                ObjectInputStream objectInputStream = new ObjectInputStream(byteArrayInputStream)
                 ) {
             // 读取对象并检查类型
             Object object = objectInputStream.readObject();
