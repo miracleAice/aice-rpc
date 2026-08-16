@@ -1,0 +1,133 @@
+package com.aice.rpc.server;
+
+import com.aice.rpc.protocol.RpcMessage;
+import com.aice.rpc.protocol.RpcResponse;
+import com.aice.rpc.serialize.JdkSerializer;
+import com.aice.rpc.serialize.Serializer;
+
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+/**
+ * 最小 RPC 服务端，负责监听客户端连接并返回固定响应。
+ *
+ * @author aice Cheng
+ */
+public class RpcServer {
+    private final int port;
+    private final Serializer serializer;
+
+    // volatile 保证其他线程调用 stop 后，服务端线程能够及时看到最新运行状态。
+    private volatile boolean running;
+
+    // 保存当前监听 Socket，使 stop 方法能够主动关闭它并解除 accept 的阻塞。
+    private ServerSocket serverSocket;
+
+    /**
+     * 创建使用 JDK 序列化的 RPC 服务端。
+     *
+     * @param port 服务端监听端口
+     */
+    public RpcServer(int port) {
+        this.port = port;
+        this.serializer = new JdkSerializer();
+    }
+
+    /**
+     * 启动服务端并持续监听客户端连接。
+     * 该方法会阻塞当前线程，直到服务端被停止。
+     */
+    public void start(){
+        // ServerSocket 使用 try-with-resources 管理，确保正常停止或异常退出时都能释放监听端口。
+        try (ServerSocket listeningSocket = new ServerSocket(port)) {
+            // 保存监听 Socket，使其他线程可以通过 stop 方法主动关闭它。
+            serverSocket = listeningSocket;
+
+            // ServerSocket 创建成功后才标记为运行中，避免端口绑定失败时留下错误状态。
+            running = true;
+
+            // 第一版采用同步单线程模型，每次接收并处理完一个连接后再等待下一个连接。
+            while (running) {
+                // accept 会阻塞等待客户端连接；使用局部变量 listeningSocket，避免依赖可能变化的字段。
+                Socket clientSocket = listeningSocket.accept();
+                handleClient(clientSocket);
+            }
+        } catch (IOException exception) {
+            // stop 会先把 running 设为 false，再关闭 ServerSocket，使 accept 抛出 IOException。
+            // 这种情况属于正常停止；服务仍在运行、端口绑定失败或监听 Socket 未关闭时才属于真实故障。
+            if (running || serverSocket == null || !serverSocket.isClosed()) {
+                throw new IllegalStateException("服务端连接失败", exception);
+            }
+        }finally {
+            // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
+            running = false;
+            serverSocket = null;
+        }
+    }
+
+    /**
+     * 读取一个客户端请求，并向客户端返回固定响应。
+     *
+     * @param clientSocket 已建立连接的客户端 Socket
+     */
+    private void handleClient(Socket clientSocket) {
+        // 同时管理客户端 Socket 和输入输出流，确保处理成功或失败时都能释放本次连接。
+        try (Socket socket = clientSocket;
+             DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+             DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
+            // 客户端先发送 4 字节长度，服务端据此确定本次请求消息体应该读取多少字节。
+            int requestLength = inputStream.readInt();
+            if (requestLength <= 0) {
+                throw new IllegalStateException("请求消息长度必须大于0");
+            }
+
+            byte[] clientData = new byte[requestLength];
+
+            // 一次普通 read 不保证读满数组，readFully 会持续读取，直到获得完整请求或连接异常结束。
+            inputStream.readFully(clientData);
+
+            // 反序列化完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
+            RpcMessage requestMessage = serializer.deserialize(clientData, RpcMessage.class);
+
+            // 当前阶段返回固定成功结果；成功响应没有错误信息，因此 errorMessage 使用 null。
+            RpcResponse serverResponse = new RpcResponse(RpcResponse.SUCCESS, "服务端已收到请求", null);
+
+            // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
+            RpcMessage serverMessage = new RpcMessage((byte)2, requestMessage.getRequestId(), serverResponse);
+
+            // 序列化完整响应消息，保留响应类型、requestId 和 RpcResponse。
+            byte[] serverData = serializer.serialize(serverMessage);
+
+            // TCP 没有消息边界，因此先发送响应长度，再发送对应数量的响应字节。
+            outputStream.writeInt(serverData.length);
+            outputStream.write(serverData);
+
+            // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
+            outputStream.flush();
+        }catch (IOException exception) {
+            // 将底层网络异常转换为服务端处理异常，同时保留原始异常原因。
+            throw new IllegalStateException("处理客户端连接失败", exception);
+        }
+    }
+
+    /**
+     * 停止服务端，并解除 accept 方法的阻塞状态。
+     */
+    public void stop() {
+        // 先修改运行状态，让 start 方法知道接下来的 Socket 关闭属于主动停止。
+        running = false;
+        try {
+            // stop 可能在服务未启动或已经停止时被调用，因此关闭前需要检查 Socket 状态。
+            if (serverSocket != null && !serverSocket.isClosed()) {
+                // 关闭 ServerSocket，使正在阻塞的 accept 立即结束，服务端线程才能退出循环。
+                serverSocket.close();
+            }
+        }catch (IOException exception) {
+            // 将底层关闭异常转换为服务端停止异常，同时保留原始异常原因。
+            throw new IllegalStateException("服务端连接关闭失败", exception);
+        }
+    }
+}
