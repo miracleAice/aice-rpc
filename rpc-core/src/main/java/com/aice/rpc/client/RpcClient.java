@@ -44,11 +44,11 @@ public class RpcClient {
         }
 
         // 每次调用创建一个 Socket，并通过 try-with-resources 保证正常结束或发生异常时都能关闭网络资源。
-        try (Socket socket = new Socket(host, port);
+        try (Socket clientSocket = new Socket(host, port);
              // DataOutputStream 可以按固定的 4 字节格式写入消息长度，也可以继续写入消息内容。
-             DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+             DataOutputStream outputStream = new DataOutputStream(clientSocket.getOutputStream());
              // DataInputStream 可以按照服务端发送时使用的相同格式读取消息长度和消息内容。
-             DataInputStream inputStream = new DataInputStream(socket.getInputStream())
+             DataInputStream inputStream = new DataInputStream(clientSocket.getInputStream())
         ) {
             // 序列化完整 RpcMessage，确保 messageType、requestId 和 data 都能够传到服务端。
             byte[] clientData = serializer.serialize(requestMessage);
@@ -78,7 +78,7 @@ public class RpcClient {
             return responseMessage;
         } catch (IOException exception) {
             // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
-            throw new IllegalStateException("连接失败", exception);
+            throw new IllegalStateException("客户端连接失败", exception);
         }
     }
 }
