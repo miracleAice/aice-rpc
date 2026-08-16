@@ -48,7 +48,7 @@ public class RpcClient {
              // DataOutputStream 可以按固定的 4 字节格式写入消息长度，也可以继续写入消息内容。
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
              // DataInputStream 可以按照服务端发送时使用的相同格式读取消息长度和消息内容。
-             DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+             DataInputStream inputStream = new DataInputStream(socket.getInputStream())
         ) {
             // 序列化完整 RpcMessage，确保 messageType、requestId 和 data 都能够传到服务端。
             byte[] clientData = serializer.serialize(requestMessage);
