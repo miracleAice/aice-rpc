@@ -1,7 +1,11 @@
 package com.aice.rpc.server;
 
+import com.aice.rpc.example.service.CalculatorService;
+import com.aice.rpc.example.service.impl.CalculatorServiceImpl;
 import com.aice.rpc.protocol.RpcMessage;
+import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
+import com.aice.rpc.registry.ServiceRegistry;
 import com.aice.rpc.serialize.JdkSerializer;
 import com.aice.rpc.serialize.Serializer;
 
@@ -12,7 +16,7 @@ import java.net.ServerSocket;
 import java.net.Socket;
 
 /**
- * 最小 RPC 服务端，负责监听客户端连接并返回固定响应。
+ * 最小 RPC 服务端，负责监听客户端连接、调用本地服务并返回 RPC 响应。
  *
  * @author aice Cheng
  */
@@ -25,6 +29,8 @@ public class RpcServer {
 
     // 保存当前监听 Socket，使 stop 方法能够主动关闭它并解除 accept 的阻塞。
     private ServerSocket serverSocket;
+
+    private final ServiceRegistry serviceRegistry = new ServiceRegistry();
 
     /**
      * 创建使用 JDK 序列化的 RPC 服务端。
@@ -41,11 +47,13 @@ public class RpcServer {
      * 该方法会阻塞当前线程，直到服务端被停止。
      */
     public void start(){
+        // 在开始接收请求前注册本地服务，确保请求到达时能够按接口名找到实现对象。
+        registerServices();
+
         // ServerSocket 使用 try-with-resources 管理，确保正常停止或异常退出时都能释放监听端口。
         try (ServerSocket listeningSocket = new ServerSocket(port)) {
             // 保存监听 Socket，使其他线程可以通过 stop 方法主动关闭它。
             serverSocket = listeningSocket;
-
             // ServerSocket 创建成功后才标记为运行中，避免端口绑定失败时留下错误状态。
             running = true;
 
@@ -69,7 +77,7 @@ public class RpcServer {
     }
 
     /**
-     * 读取一个客户端请求，并向客户端返回固定响应。
+     * 读取一个客户端请求，执行对应的本地服务方法，并返回调用结果。
      *
      * @param clientSocket 已建立连接的客户端 Socket
      */
@@ -92,8 +100,9 @@ public class RpcServer {
             // 反序列化完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
             RpcMessage requestMessage = serializer.deserialize(clientData, RpcMessage.class);
 
-            // 当前阶段返回固定成功结果；成功响应没有错误信息，因此 errorMessage 使用 null。
-            RpcResponse serverResponse = new RpcResponse(RpcResponse.SUCCESS, "服务端已收到请求", null);
+            // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
+            RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
+            RpcResponse serverResponse = requestHandler.handle((RpcRequest) requestMessage.getData());
 
             // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
             RpcMessage serverMessage = new RpcMessage((byte)2, requestMessage.getRequestId(), serverResponse);
@@ -111,6 +120,16 @@ public class RpcServer {
             // 将底层网络异常转换为服务端处理异常，同时保留原始异常原因。
             throw new IllegalStateException("处理客户端连接失败", exception);
         }
+    }
+
+    /**
+     * 注册当前服务端对外提供的本地服务。
+     * 请求中的接口全限定名会作为查找服务实现对象的依据。
+     * */
+    private void registerServices() {
+        // CalculatorService.class 是全限定名，不是 "CalculatorService"
+        // 第二个参数 Object service 对应的是实际可以执行方法的对象，不是 CalculatorServiceImpl.class
+        serviceRegistry.register(CalculatorService.class, new CalculatorServiceImpl());
     }
 
     /**

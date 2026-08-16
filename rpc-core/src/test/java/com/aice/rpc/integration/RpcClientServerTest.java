@@ -1,7 +1,9 @@
 package com.aice.rpc.integration;
 
 import com.aice.rpc.client.RpcClient;
+import com.aice.rpc.example.service.CalculatorService;
 import com.aice.rpc.protocol.RpcMessage;
+import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
 import com.aice.rpc.server.RpcServer;
 import org.junit.jupiter.api.Test;
@@ -19,18 +21,21 @@ class RpcClientServerTest {
      * 验证客户端发送请求后，能够接收到服务端返回的响应消息。
      */
     @Test
-    void shouldSendRequestAndReceiveResponse() throws InterruptedException{
+    void shouldSendRequestAndReceiveResponse() throws InterruptedException {
         // 创建本地服务端，用于验证客户端和服务端之间的真实 Socket 通信。
         RpcServer server = new RpcServer(8080);
 
         // 客户端连接到与服务端相同的地址和端口。
         RpcClient client = new RpcClient("localhost", 8080);
 
+        // 请求使用接口全限定名、方法名、参数值和参数类型，准确描述 CalculatorService.add(int, int) 调用。
+        RpcRequest testRequest = new RpcRequest(CalculatorService.class.getName(), "add",
+                                                 new Object[]{1, 2}, new Class<?>[]{int.class, int.class});
         // 构造完整请求消息，requestId 用于验证服务端响应是否属于本次请求。
-        RpcMessage message = new RpcMessage((byte)1, "123", "*rpc测试*");
+        RpcMessage message = new RpcMessage((byte) 1, "123", testRequest);
 
         // RpcServer.start 会阻塞当前线程，因此必须在独立线程中启动服务端。
-        Thread serverThread  = new Thread(server::start);
+        Thread serverThread = new Thread(server::start);
         serverThread.start();
 
         try {
@@ -51,9 +56,9 @@ class RpcClientServerTest {
                     result.getData()
             );
 
-            // 验证当前固定响应的状态、返回值和错误信息是否符合预期。
+            // 验证服务端已实际调用 add(1, 2)，并将调用结果封装为成功响应。
             assertEquals(RpcResponse.SUCCESS, response.getStatus());
-            assertEquals("服务端已收到请求", response.getReturnValue());
+            assertEquals(3, response.getReturnValue());
             assertNull(response.getErrorMessage());
 
         } finally {
