@@ -100,10 +100,16 @@ public class RpcServer {
             // 反序列化完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
             RpcMessage requestMessage = serializer.deserialize(clientData, RpcMessage.class);
 
-            // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
-            RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
-            RpcResponse serverResponse = requestHandler.handle((RpcRequest) requestMessage.getData());
-
+            // 处理请求前需先校验请求消息体是否为 RpcRequest 类型
+            RpcResponse serverResponse;
+            if ((requestMessage.getData() instanceof RpcRequest)) {
+                // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
+                RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
+                // 处理请求消息
+                serverResponse = requestHandler.handle((RpcRequest) requestMessage.getData());
+            }else {
+                serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
+            }
             // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
             RpcMessage serverMessage = new RpcMessage((byte)2, requestMessage.getRequestId(), serverResponse);
 
