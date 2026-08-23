@@ -33,6 +33,19 @@ public class RpcClientInvocationHandler implements InvocationHandler {
      */
     @Override
     public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        if (method.getDeclaringClass() == Object.class) {
+            switch (method.getName()) {
+                case "toString" -> {
+                    return "RPC 代理对象：" + proxy.getClass().getInterfaces()[0].getName();
+                }
+                case "hashCode" -> {
+                    return System.identityHashCode(proxy);
+                }
+                case "equals" -> {
+                    return proxy == args[0];
+                }
+            }
+        }
         String interfaceName = method.getDeclaringClass().getName();
         String methodName = method.getName();
         Object[] parameterValues = args;
