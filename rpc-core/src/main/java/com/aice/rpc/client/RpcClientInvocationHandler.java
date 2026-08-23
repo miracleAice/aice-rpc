@@ -43,8 +43,22 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         RpcMessage requestMessage = new RpcMessage((byte)1, requestId, rpcRequest);
 
         RpcMessage responseMessage = rpcClient.send(requestMessage);
-
+        if (responseMessage == null) {
+            throw new RuntimeException("服务端未返回消息");
+        }
+        if (responseMessage.getMessageType() != 2) {
+            throw new RuntimeException("服务端返回的不是响应消息");
+        }
+        if (!requestId.equals(responseMessage.getRequestId())) {
+            throw new RuntimeException("响应与请求不匹配");
+        }
+        if (!(responseMessage.getData() instanceof RpcResponse)) {
+            throw new RuntimeException("消息体类型不正确");
+        }
         RpcResponse rpcResponse = (RpcResponse)responseMessage.getData();
+        if (rpcResponse.getStatus() == RpcResponse.FAILURE) {
+            throw new RuntimeException(rpcResponse.getErrorMessage());
+        }
 
         return rpcResponse.getReturnValue();
     }
