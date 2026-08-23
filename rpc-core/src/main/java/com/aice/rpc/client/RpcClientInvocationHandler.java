@@ -69,7 +69,7 @@ public class RpcClientInvocationHandler implements InvocationHandler {
             throw new RuntimeException("消息体类型不正确");
         }
         RpcResponse rpcResponse = (RpcResponse)responseMessage.getData();
-        if (rpcResponse.getStatus() == RpcResponse.FAILURE) {
+        if (rpcResponse.getStatus() != RpcResponse.SUCCESS) {
             throw new RuntimeException(rpcResponse.getErrorMessage());
         }
 
