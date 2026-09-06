@@ -120,7 +120,7 @@ public class RpcDecoder {
         }
 
         // 将请求头字段和消息体封装为 RpcMessage。
-        RpcMessage rpcMessage = new RpcMessage(
+        return new RpcMessage(
                 version,
                 serializerType,
                 messageType,
@@ -129,7 +129,6 @@ public class RpcDecoder {
                 bodyLength,
                 body
         );
-        return rpcMessage;
     }
 
     /**
