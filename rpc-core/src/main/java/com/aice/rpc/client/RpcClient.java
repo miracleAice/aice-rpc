@@ -52,7 +52,7 @@ public class RpcClient {
              // DataInputStream 负责从网络连接中读取响应头和响应体。
              DataInputStream inputStream = new DataInputStream(clientSocket.getInputStream())
         ) {
-            // 序列化完整 RpcMessage，确保 messageType、requestId 和 body 都能够传到服务端。
+            // 将 RpcMessage 编码为自定义协议字节：写入协议头，并序列化消息体
             byte[] clientBytes = encoder.encode(requestMessage);
 
             // 编码器 encoder 先写入自定义协议的请求头，再写入请求体
