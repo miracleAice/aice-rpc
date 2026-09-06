@@ -62,13 +62,13 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         RpcRequest rpcRequest = new RpcRequest(interfaceName, methodName, parameterValues, parameterTypes);
         // 为本次调用生成唯一请求标识，并将请求体封装为外层 RPC 消息。
         String requestId = UUID.randomUUID().toString();
-        RpcMessage requestMessage = new RpcMessage((byte)1, requestId, rpcRequest);
+        RpcMessage requestMessage = new RpcMessage(RpcMessage.MESSAGE_REQUEST, requestId, rpcRequest);
         RpcMessage responseMessage = rpcClient.send(requestMessage);
         // 校验响应是否属于本次调用，且响应消息结构符合预期。
         if (responseMessage == null) {
             throw new RuntimeException("服务端未返回消息");
         }
-        if (responseMessage.getMessageType() != 2) {
+        if (responseMessage.getMessageType() != RpcMessage.MESSAGE_RESPONSE) {
             throw new RuntimeException("服务端返回的不是响应消息");
         }
         if (!requestId.equals(responseMessage.getRequestId())) {

@@ -11,9 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 class JdkSerializerTest {
-    private static final byte REQUEST = 1;
-    private static final byte RESPONSE = 2;
-
     private final Serializer serializer = new JdkSerializer();
 
     /**
@@ -27,13 +24,13 @@ class JdkSerializerTest {
                 new Object[]{"aice"},
                 new Class<?>[]{String.class}
         );
-        RpcMessage message = new RpcMessage(REQUEST, "request-1", request);
+        RpcMessage message = new RpcMessage(RpcMessage.MESSAGE_REQUEST, "request-1", request);
 
         // 将完整请求消息转换为字节数组，再还原为 RpcMessage。
         byte[] bytes = serializer.serialize(message);
         RpcMessage restoredMessage = serializer.deserialize(bytes, RpcMessage.class);
 
-        assertEquals(REQUEST, restoredMessage.getMessageType());
+        assertEquals(RpcMessage.MESSAGE_REQUEST, restoredMessage.getMessageType());
         assertEquals("request-1", restoredMessage.getRequestId());
         assertInstanceOf(RpcRequest.class, restoredMessage.getData());
 
@@ -50,13 +47,13 @@ class JdkSerializerTest {
     @Test
     void shouldSerializeAndDeserializeSuccessResponseMessage() {
         RpcResponse response = new RpcResponse(RpcResponse.SUCCESS, "Hello, aice", null);
-        RpcMessage message = new RpcMessage(RESPONSE, "request-1", response);
+        RpcMessage message = new RpcMessage(RpcMessage.MESSAGE_RESPONSE, "request-1", response);
 
         // 对成功响应进行一次完整的序列化往返。
         byte[] bytes = serializer.serialize(message);
         RpcMessage restoredMessage = serializer.deserialize(bytes, RpcMessage.class);
 
-        assertEquals(RESPONSE, restoredMessage.getMessageType());
+        assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
         assertEquals("request-1", restoredMessage.getRequestId());
         assertInstanceOf(RpcResponse.class, restoredMessage.getData());
 
@@ -72,13 +69,13 @@ class JdkSerializerTest {
     @Test
     void shouldSerializeAndDeserializeFailureResponseMessage() {
         RpcResponse response = new RpcResponse(RpcResponse.FAILURE, null, "服务调用失败");
-        RpcMessage message = new RpcMessage(RESPONSE, "request-1", response);
+        RpcMessage message = new RpcMessage(RpcMessage.MESSAGE_RESPONSE, "request-1", response);
 
         // 对失败响应进行一次完整的序列化往返。
         byte[] bytes = serializer.serialize(message);
         RpcMessage restoredMessage = serializer.deserialize(bytes, RpcMessage.class);
 
-        assertEquals(RESPONSE, restoredMessage.getMessageType());
+        assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
         assertEquals("request-1", restoredMessage.getRequestId());
         assertInstanceOf(RpcResponse.class, restoredMessage.getData());
 

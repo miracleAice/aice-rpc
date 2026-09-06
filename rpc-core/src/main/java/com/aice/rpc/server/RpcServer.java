@@ -110,7 +110,7 @@ public class RpcServer {
                 serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
             }
             // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
-            RpcMessage serverMessage = new RpcMessage((byte)2, requestMessage.getRequestId(), serverResponse);
+            RpcMessage serverMessage = new RpcMessage(RpcMessage.MESSAGE_RESPONSE, requestMessage.getRequestId(), serverResponse);
 
             // 序列化完整响应消息，保留响应类型、requestId 和 RpcResponse。
             byte[] serverData = serializer.serialize(serverMessage);

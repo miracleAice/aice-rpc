@@ -32,7 +32,7 @@ class RpcClientServerTest {
         RpcRequest testRequest = new RpcRequest(CalculatorService.class.getName(), "add",
                                                  new Object[]{1, 2}, new Class<?>[]{int.class, int.class});
         // 构造完整请求消息，requestId 用于验证服务端响应是否属于本次请求。
-        RpcMessage message = new RpcMessage((byte) 1, "123", testRequest);
+        RpcMessage message = new RpcMessage(RpcMessage.MESSAGE_REQUEST, "123", testRequest);
 
         // RpcServer.start 会阻塞当前线程，因此必须在独立线程中启动服务端。
         Thread serverThread = new Thread(server::start);
@@ -47,7 +47,7 @@ class RpcClientServerTest {
             RpcMessage result = client.send(message);
 
             // 服务端返回的外层消息必须是响应类型，并且沿用原始 requestId。
-            assertEquals((byte) 2, result.getMessageType());
+            assertEquals(RpcMessage.MESSAGE_RESPONSE, result.getMessageType());
             assertEquals("123", result.getRequestId());
 
             // 响应消息的 data 应为 RpcResponse，assertInstanceOf 会验证类型并完成转换。

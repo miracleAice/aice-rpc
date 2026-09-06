@@ -21,6 +21,10 @@ import java.io.Serializable;
 @AllArgsConstructor
 public class RpcMessage implements Serializable {
 
+    public static final byte MESSAGE_REQUEST = 1; // 请求消息
+    public static final byte MESSAGE_RESPONSE = 2; // 响应消息
+    public static final byte MESSAGE_HEART = 3; // 心跳消息
+
     /**
      * JDK 序列化版本号，反序列化时用于判断“字节数据中的类”和“当前代码中的类”版本是否兼容
      */
@@ -28,7 +32,7 @@ public class RpcMessage implements Serializable {
     private static final long serialVersionUID = 1L;
 
     /**
-     * 消息类型：1=请求、2=响应、3=心跳
+     * 消息类型
      */
     private byte messageType;
 
