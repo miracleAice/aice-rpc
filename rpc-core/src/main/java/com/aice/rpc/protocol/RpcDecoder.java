@@ -53,7 +53,7 @@ public class RpcDecoder {
      * @param bytes 待解码的字节数组
      * @return 解码后的 RPC 消息
      */
-    private RpcMessage decodeBytes(byte[] bytes) {
+    public RpcMessage decodeBytes(byte[] bytes) {
         // 校验消息长度是否满足协议头要求。
         if (bytes == null || bytes.length == 0) {
             throw new IllegalStateException("RPC 消息为空");

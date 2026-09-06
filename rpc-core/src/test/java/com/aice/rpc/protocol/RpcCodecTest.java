@@ -45,7 +45,7 @@ class RpcCodecTest {
 
         // 编码后再解码，模拟一次完整协议转换。
         byte[] bytes = encoder.encode(message);
-        RpcMessage restoredMessage = decoder.decode(bytes);
+        RpcMessage restoredMessage = decoder.decodeBytes(bytes);
 
         assertEquals(RpcMessage.HEADER_LENGTH + message.getBodyLength(), bytes.length);
         assertEquals(RpcMessage.VERSION_1, restoredMessage.getVersion());
@@ -80,7 +80,7 @@ class RpcCodecTest {
 
         // 编码后再解码，验证响应消息体能够正确还原。
         byte[] bytes = encoder.encode(message);
-        RpcMessage restoredMessage = decoder.decode(bytes);
+        RpcMessage restoredMessage = decoder.decodeBytes(bytes);
 
         assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
         assertEquals(2L, restoredMessage.getRequestId());
@@ -138,6 +138,6 @@ class RpcCodecTest {
         byte[] bytes = encoder.encode(message);
         bytes[0] = 0;
 
-        assertThrows(IllegalStateException.class, () -> decoder.decode(bytes));
+        assertThrows(IllegalStateException.class, () -> decoder.decodeBytes(bytes));
     }
 }
