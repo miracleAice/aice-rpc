@@ -24,7 +24,7 @@ public class RpcMessage implements Serializable {
     public static final byte MESSAGE_REQUEST = 1; // 请求消息
     public static final byte MESSAGE_RESPONSE = 2; // 响应消息
     public static final byte MESSAGE_HEART = 3; // 心跳消息
-    public static final byte VERSION = 1; // 协议版本
+    public static final byte VERSION_1 = 1; // 协议版本 1
     public static final byte SERIALIZER_JDK = 1; // JDK 序列化
     public static final byte STATUS_SUCCESS = 0; // 消息正常
     public static final byte STATUS_FAIL = 1; // 消息异常

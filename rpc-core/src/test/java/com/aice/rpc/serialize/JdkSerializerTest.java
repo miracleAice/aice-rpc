@@ -25,7 +25,7 @@ class JdkSerializerTest {
                 new Class<?>[]{String.class}
         );
         RpcMessage message = new RpcMessage(
-                RpcMessage.VERSION,
+                RpcMessage.VERSION_1,
                 RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_REQUEST,
                 1L,
@@ -56,7 +56,7 @@ class JdkSerializerTest {
     void shouldSerializeAndDeserializeSuccessResponseMessage() {
         RpcResponse response = new RpcResponse(RpcResponse.SUCCESS, "Hello, aice", null);
         RpcMessage message = new RpcMessage(
-                RpcMessage.VERSION,
+                RpcMessage.VERSION_1,
                 RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_RESPONSE,
                 1L,
@@ -86,7 +86,7 @@ class JdkSerializerTest {
     void shouldSerializeAndDeserializeFailureResponseMessage() {
         RpcResponse response = new RpcResponse(RpcResponse.FAILURE, null, "服务调用失败");
         RpcMessage message = new RpcMessage(
-                RpcMessage.VERSION,
+                RpcMessage.VERSION_1,
                 RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_RESPONSE,
                 1L,

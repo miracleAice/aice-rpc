@@ -33,7 +33,7 @@ class RpcClientServerTest {
                                                  new Object[]{1, 2}, new Class<?>[]{int.class, int.class});
         // 构造完整请求消息，requestId 用于验证服务端响应是否属于本次请求。
         RpcMessage message = new RpcMessage(
-                RpcMessage.VERSION,
+                RpcMessage.VERSION_1,
                 RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_REQUEST,
                 123L,

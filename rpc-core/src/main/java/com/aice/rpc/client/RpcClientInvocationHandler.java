@@ -65,7 +65,7 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         // 为本次调用生成递增请求标识，并将请求体封装为外层 RPC 消息。
         long requestId = REQUEST_ID_GENERATOR.incrementAndGet();
         RpcMessage requestMessage = new RpcMessage(
-                RpcMessage.VERSION,
+                RpcMessage.VERSION_1,
                 RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_REQUEST,
                 requestId,

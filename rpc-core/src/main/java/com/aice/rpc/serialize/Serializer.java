@@ -5,7 +5,6 @@ package com.aice.rpc.serialize;
  * Created on  2026/8/11 23:53
  */
 public interface Serializer {
-
     /**
      * 序列化
      * */
