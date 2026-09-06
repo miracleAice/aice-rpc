@@ -2,6 +2,8 @@ package com.aice.rpc.protocol;
 
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+import java.io.DataInputStream;
 import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -88,6 +90,32 @@ class RpcCodecTest {
         assertEquals(RpcResponse.SUCCESS, restoredResponse.getStatus());
         assertEquals("Hello, aice", restoredResponse.getReturnValue());
         assertNull(restoredResponse.getErrorMessage());
+    }
+
+    /**
+     * 验证输入流中的完整消息可以被解码。
+     */
+    @Test
+    void shouldDecodeMessageFromInputStream() throws IOException {
+        RpcResponse response = new RpcResponse(RpcResponse.SUCCESS, "Hello, aice", null);
+        RpcMessage message = new RpcMessage(
+                RpcMessage.VERSION_1,
+                RpcMessage.SERIALIZER_JDK,
+                RpcMessage.MESSAGE_RESPONSE,
+                3L,
+                RpcMessage.STATUS_SUCCESS,
+                0,
+                response
+        );
+
+        // 将编码后的协议字节包装为输入流，模拟 Socket 读取场景。
+        byte[] bytes = encoder.encode(message);
+        DataInputStream inputStream = new DataInputStream(new ByteArrayInputStream(bytes));
+        RpcMessage restoredMessage = decoder.decode(inputStream);
+
+        assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
+        assertEquals(3L, restoredMessage.getRequestId());
+        assertInstanceOf(RpcResponse.class, restoredMessage.getBody());
     }
 
     /**

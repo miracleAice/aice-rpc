@@ -4,7 +4,6 @@ import com.aice.rpc.protocol.RpcDecoder;
 import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -62,51 +61,11 @@ public class RpcClient {
             // 在等待响应前刷新输出流，确保请求数据已经写入底层网络连接。
             outputStream.flush();
 
-            // 先读取响应头，获取响应体长度。
-            byte[] headerBytes = new byte[RpcMessage.HEADER_LENGTH];
-            inputStream.readFully(headerBytes);
-
-            int bodyLength = getBodyLength(headerBytes);
-
-            // 根据响应体长度读取响应体。
-            byte[] bodyBytes = new byte[bodyLength];
-            // 一次普通 read 不保证能读满数组，readFully 会持续读取，直到获得完整响应或连接异常结束。
-            inputStream.readFully(bodyBytes);
-
-            // 将响应头和响应体字节数组拼在一起解码，获取返回的 RpcMessage。
-            byte[] serverBytes = new byte[RpcMessage.HEADER_LENGTH + bodyLength];
-            System.arraycopy(headerBytes, 0, serverBytes, 0, headerBytes.length);
-            System.arraycopy(bodyBytes, 0, serverBytes, headerBytes.length, bodyBytes.length);
-
-            // 将完整响应交给解码器解析为 RpcMessage。
-            return decoder.decode(serverBytes);
+            // 从输入流中读取并解码完整响应消息。
+            return decoder.decode(inputStream);
         } catch (IOException exception) {
             // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
             throw new IllegalStateException("客户端连接失败", exception);
         }
-    }
-
-    /**
-     * 从协议头字节数组中读取消息体长度。
-     *
-     * @param headerBytes 协议头字节数组
-     * @return 消息体长度
-     * @throws IOException 读取协议头失败时抛出
-     */
-    private int getBodyLength(byte[] headerBytes) throws IOException {
-        int bodyLength;
-        try (
-                ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(headerBytes);
-                DataInputStream headerInputStream = new DataInputStream(byteArrayInputStream)
-                ) {
-            headerInputStream.readInt();      // magic
-            headerInputStream.readByte();     // version
-            headerInputStream.readByte();     // serializerType
-            headerInputStream.readByte();     // messageType
-            headerInputStream.readLong();     // requestId
-            headerInputStream.readByte();     // status
-            bodyLength = headerInputStream.readInt();
-        }
-        return bodyLength;
     }
 }

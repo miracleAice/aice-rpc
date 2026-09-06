@@ -18,12 +18,42 @@ public class RpcDecoder {
     public RpcDecoder(){}
 
     /**
+     * 从输入流中读取并解码一条完整的 RPC 消息。
+     *
+     * @param inputStream 输入流
+     * @return 解码后的 RPC 消息
+     * @throws IOException 读取输入流失败时抛出
+     */
+    public RpcMessage decode(DataInputStream inputStream) throws IOException {
+        // 先读取固定长度协议头。
+        byte[] headerBytes = new byte[RpcMessage.HEADER_LENGTH];
+        inputStream.readFully(headerBytes);
+
+        // 从协议头中读取消息体长度。
+        int bodyLength = getBodyLength(headerBytes);
+        if (bodyLength < 0) {
+            throw new IllegalArgumentException("消息体长度不能小于 0");
+        }
+
+        // 根据消息体长度读取完整消息体。
+        byte[] bodyBytes = new byte[bodyLength];
+        inputStream.readFully(bodyBytes);
+
+        // 拼接协议头和消息体，复用字节数组解码逻辑。
+        byte[] messageBytes = new byte[RpcMessage.HEADER_LENGTH + bodyLength];
+        System.arraycopy(headerBytes, 0, messageBytes, 0, headerBytes.length);
+        System.arraycopy(bodyBytes, 0, messageBytes, headerBytes.length, bodyBytes.length);
+
+        return decodeBytes(messageBytes);
+    }
+
+    /**
      * 将字节数组解码为 RPC 消息。
      *
      * @param bytes 待解码的字节数组
      * @return 解码后的 RPC 消息
      */
-    public RpcMessage decode(byte[] bytes) {
+    private RpcMessage decodeBytes(byte[] bytes) {
         // 校验消息长度是否满足协议头要求。
         if (bytes == null || bytes.length == 0) {
             throw new IllegalStateException("RPC 消息为空");
@@ -100,5 +130,29 @@ public class RpcDecoder {
                 body
         );
         return rpcMessage;
+    }
+
+    /**
+     * 从协议头字节数组中读取消息体长度。
+     *
+     * @param headerBytes 协议头字节数组
+     * @return 消息体长度
+     * @throws IOException 读取协议头失败时抛出
+     */
+    private int getBodyLength(byte[] headerBytes) throws IOException {
+        int bodyLength;
+        try (
+                ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(headerBytes);
+                DataInputStream headerInputStream = new DataInputStream(byteArrayInputStream)
+        ) {
+            headerInputStream.readInt();      // magic
+            headerInputStream.readByte();     // version
+            headerInputStream.readByte();     // serializerType
+            headerInputStream.readByte();     // messageType
+            headerInputStream.readLong();     // requestId
+            headerInputStream.readByte();     // status
+            bodyLength = headerInputStream.readInt();
+        }
+        return bodyLength;
     }
 }

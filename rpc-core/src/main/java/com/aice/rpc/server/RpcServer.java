@@ -9,7 +9,6 @@ import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
 import com.aice.rpc.registry.ServiceRegistry;
 
-import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -90,24 +89,8 @@ public class RpcServer {
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
              DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
 
-            // 先读取请求头，获取请求体长度。
-            byte[] headerBytes = new byte[RpcMessage.HEADER_LENGTH];
-            inputStream.readFully(headerBytes);
-
-            int bodyLength = getBodyLength(headerBytes);
-
-            // 根据请求体长度读取请求体字节数组。
-            byte[] bodyBytes = new byte[bodyLength];
-            // 一次普通 read 不保证读满数组，readFully 会持续读取，直到获得完整请求或连接异常结束。
-            inputStream.readFully(bodyBytes);
-
-            // 将请求头和请求体字节数组拼在一起解码，获取客户端请求消息。
-            byte[] clientBytes = new byte[RpcMessage.HEADER_LENGTH + bodyLength];
-            System.arraycopy(headerBytes, 0, clientBytes, 0, headerBytes.length);
-            System.arraycopy(bodyBytes, 0, clientBytes, headerBytes.length, bodyBytes.length);
-
-            // 解码完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
-            RpcMessage requestMessage = decoder.decode(clientBytes);
+            // 从输入流中读取并解码完整请求消息。
+            RpcMessage requestMessage = decoder.decode(inputStream);
 
             // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
             RpcResponse serverResponse;
@@ -171,27 +154,4 @@ public class RpcServer {
         }
     }
 
-    /**
-     * 从协议头字节数组中读取消息体长度。
-     *
-     * @param headerBytes 协议头字节数组
-     * @return 消息体长度
-     * @throws IOException 读取协议头失败时抛出
-     */
-    private int getBodyLength(byte[] headerBytes) throws IOException {
-        int bodyLength;
-        try (
-                ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(headerBytes);
-                DataInputStream headerInputStream = new DataInputStream(byteArrayInputStream)
-        ) {
-            headerInputStream.readInt();      // magic
-            headerInputStream.readByte();     // version
-            headerInputStream.readByte();     // serializerType
-            headerInputStream.readByte();     // messageType
-            headerInputStream.readLong();     // requestId
-            headerInputStream.readByte();     // status
-            bodyLength = headerInputStream.readInt();
-        }
-        return bodyLength;
-    }
 }
