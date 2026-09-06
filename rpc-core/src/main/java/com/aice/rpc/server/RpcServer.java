@@ -2,13 +2,14 @@ package com.aice.rpc.server;
 
 import com.aice.rpc.example.service.CalculatorService;
 import com.aice.rpc.example.service.impl.CalculatorServiceImpl;
+import com.aice.rpc.protocol.RpcDecoder;
+import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
 import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
 import com.aice.rpc.registry.ServiceRegistry;
-import com.aice.rpc.serialize.JdkSerializer;
-import com.aice.rpc.serialize.Serializer;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -22,7 +23,8 @@ import java.net.Socket;
  */
 public class RpcServer {
     private final int port;
-    private final Serializer serializer;
+    private final RpcEncoder encoder;
+    private final RpcDecoder decoder;
 
     // volatile 保证其他线程调用 stop 后，服务端线程能够及时看到最新运行状态。
     private volatile boolean running;
@@ -39,7 +41,8 @@ public class RpcServer {
      */
     public RpcServer(int port) {
         this.port = port;
-        this.serializer = new JdkSerializer();
+        this.encoder = new RpcEncoder();
+        this.decoder = new RpcDecoder();
     }
 
     /**
@@ -86,21 +89,27 @@ public class RpcServer {
         try (Socket socket = clientSocket;
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
              DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
-            // 客户端先发送 4 字节长度，服务端据此确定本次请求消息体应该读取多少字节。
-            int requestLength = inputStream.readInt();
-            if (requestLength <= 0) {
-                throw new IllegalStateException("请求消息长度必须大于0");
-            }
 
-            byte[] clientData = new byte[requestLength];
+            // 先读取请求头，获取请求体长度。
+            byte[] headerBytes = new byte[RpcMessage.HEADER_LENGTH];
+            inputStream.readFully(headerBytes);
 
+            int bodyLength = getBodyLength(headerBytes);
+
+            // 根据请求体长度读取请求体字节数组。
+            byte[] bodyBytes = new byte[bodyLength];
             // 一次普通 read 不保证读满数组，readFully 会持续读取，直到获得完整请求或连接异常结束。
-            inputStream.readFully(clientData);
+            inputStream.readFully(bodyBytes);
 
-            // 反序列化完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
-            RpcMessage requestMessage = serializer.deserialize(clientData, RpcMessage.class);
+            // 将请求头和请求体字节数组拼在一起解码，获取客户端请求消息。
+            byte[] clientBytes = new byte[RpcMessage.HEADER_LENGTH + bodyLength];
+            System.arraycopy(headerBytes, 0, clientBytes, 0, headerBytes.length);
+            System.arraycopy(bodyBytes, 0, clientBytes, headerBytes.length, bodyBytes.length);
 
-            // 处理请求前需先校验请求消息体是否为 RpcRequest 类型
+            // 解码完整 RpcMessage，获得 messageType、requestId 和具体请求数据。
+            RpcMessage requestMessage = decoder.decode(clientBytes);
+
+            // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
             RpcResponse serverResponse;
             if ((requestMessage.getBody() instanceof RpcRequest)) {
                 // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
@@ -120,12 +129,11 @@ public class RpcServer {
                     serverResponse
             );
 
-            // 序列化完整响应消息，保留响应类型、requestId 和 RpcResponse。
-            byte[] serverData = serializer.serialize(serverMessage);
+            // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
+            byte[] serverBytes = encoder.encode(serverMessage);
 
-            // TCP 没有消息边界，因此先发送响应长度，再发送对应数量的响应字节。
-            outputStream.writeInt(serverData.length);
-            outputStream.write(serverData);
+            // 将编码后的响应协议字节写入网络连接。
+            outputStream.write(serverBytes);
 
             // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
             outputStream.flush();
@@ -161,5 +169,29 @@ public class RpcServer {
             // 将底层关闭异常转换为服务端停止异常，同时保留原始异常原因。
             throw new IllegalStateException("服务端连接关闭失败", exception);
         }
+    }
+
+    /**
+     * 从协议头字节数组中读取消息体长度。
+     *
+     * @param headerBytes 协议头字节数组
+     * @return 消息体长度
+     * @throws IOException 读取协议头失败时抛出
+     */
+    private int getBodyLength(byte[] headerBytes) throws IOException {
+        int bodyLength;
+        try (
+                ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(headerBytes);
+                DataInputStream headerInputStream = new DataInputStream(byteArrayInputStream)
+        ) {
+            headerInputStream.readInt();      // magic
+            headerInputStream.readByte();     // version
+            headerInputStream.readByte();     // serializerType
+            headerInputStream.readByte();     // messageType
+            headerInputStream.readLong();     // requestId
+            headerInputStream.readByte();     // status
+            bodyLength = headerInputStream.readInt();
+        }
+        return bodyLength;
     }
 }
