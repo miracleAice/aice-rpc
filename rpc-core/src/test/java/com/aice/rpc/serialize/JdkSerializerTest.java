@@ -32,9 +32,9 @@ class JdkSerializerTest {
 
         assertEquals(RpcMessage.MESSAGE_REQUEST, restoredMessage.getMessageType());
         assertEquals(1L, restoredMessage.getRequestId());
-        assertInstanceOf(RpcRequest.class, restoredMessage.getData());
+        assertInstanceOf(RpcRequest.class, restoredMessage.getBody());
 
-        RpcRequest restoredRequest = (RpcRequest) restoredMessage.getData();
+        RpcRequest restoredRequest = (RpcRequest) restoredMessage.getBody();
         assertEquals("com.aice.rpc.example.GreetingService", restoredRequest.getInterfaceName());
         assertEquals("sayHello", restoredRequest.getMethodName());
         assertArrayEquals(new Object[]{"aice"}, restoredRequest.getParameterValues());
@@ -55,9 +55,9 @@ class JdkSerializerTest {
 
         assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
         assertEquals(1L, restoredMessage.getRequestId());
-        assertInstanceOf(RpcResponse.class, restoredMessage.getData());
+        assertInstanceOf(RpcResponse.class, restoredMessage.getBody());
 
-        RpcResponse restoredResponse = (RpcResponse) restoredMessage.getData();
+        RpcResponse restoredResponse = (RpcResponse) restoredMessage.getBody();
         assertEquals(RpcResponse.SUCCESS, restoredResponse.getStatus());
         assertEquals("Hello, aice", restoredResponse.getReturnValue());
         assertNull(restoredResponse.getErrorMessage());
@@ -77,9 +77,9 @@ class JdkSerializerTest {
 
         assertEquals(RpcMessage.MESSAGE_RESPONSE, restoredMessage.getMessageType());
         assertEquals(1L, restoredMessage.getRequestId());
-        assertInstanceOf(RpcResponse.class, restoredMessage.getData());
+        assertInstanceOf(RpcResponse.class, restoredMessage.getBody());
 
-        RpcResponse restoredResponse = (RpcResponse) restoredMessage.getData();
+        RpcResponse restoredResponse = (RpcResponse) restoredMessage.getBody();
         assertEquals(RpcResponse.FAILURE, restoredResponse.getStatus());
         assertNull(restoredResponse.getReturnValue());
         assertEquals("服务调用失败", restoredResponse.getErrorMessage());

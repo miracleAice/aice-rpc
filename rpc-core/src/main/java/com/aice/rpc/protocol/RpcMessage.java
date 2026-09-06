@@ -44,5 +44,5 @@ public class RpcMessage implements Serializable {
     /**
      * 消息体
      */
-    private Object data;
+    private Object body;
 }

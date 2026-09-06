@@ -50,10 +50,10 @@ class RpcClientServerTest {
             assertEquals(RpcMessage.MESSAGE_RESPONSE, result.getMessageType());
             assertEquals(123L, result.getRequestId());
 
-            // 响应消息的 data 应为 RpcResponse，assertInstanceOf 会验证类型并完成转换。
+            // 响应消息的 body 应为 RpcResponse，assertInstanceOf 会验证类型并完成转换。
             RpcResponse response = assertInstanceOf(
                     RpcResponse.class,
-                    result.getData()
+                    result.getBody()
             );
 
             // 验证服务端已实际调用 add(1, 2)，并将调用结果封装为成功响应。

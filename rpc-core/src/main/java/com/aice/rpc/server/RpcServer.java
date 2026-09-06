@@ -102,10 +102,10 @@ public class RpcServer {
 
             // 处理请求前需先校验请求消息体是否为 RpcRequest 类型
             RpcResponse serverResponse;
-            if ((requestMessage.getData() instanceof RpcRequest)) {
+            if ((requestMessage.getBody() instanceof RpcRequest)) {
                 // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
                 RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
-                serverResponse = requestHandler.handle((RpcRequest) requestMessage.getData());
+                serverResponse = requestHandler.handle((RpcRequest) requestMessage.getBody());
             }else {
                 serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
             }

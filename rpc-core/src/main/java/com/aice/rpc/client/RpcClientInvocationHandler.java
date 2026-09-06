@@ -76,11 +76,11 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         if (requestId != responseMessage.getRequestId()) {
             throw new RuntimeException("响应与请求不匹配");
         }
-        if (!(responseMessage.getData() instanceof RpcResponse)) {
+        if (!(responseMessage.getBody() instanceof RpcResponse)) {
             throw new RuntimeException("消息体类型不正确");
         }
         // 类型校验通过后，安全取得 RPC 响应体。
-        RpcResponse rpcResponse = (RpcResponse)responseMessage.getData();
+        RpcResponse rpcResponse = (RpcResponse)responseMessage.getBody();
         // 服务端返回失败或未知状态时，向接口调用方抛出异常。
         if (rpcResponse.getStatus() != RpcResponse.SUCCESS) {
             throw new RuntimeException(rpcResponse.getErrorMessage());

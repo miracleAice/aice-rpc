@@ -38,7 +38,7 @@ public class RpcClient {
     * @return 服务端返回的响应消息
      */
     public RpcMessage send(RpcMessage requestMessage) {
-        // 只校验外层消息是否存在。心跳消息的 data 可以为空，因此这里不校验 requestMessage.getData()。
+        // 只校验外层消息是否存在。心跳消息的 body 可以为空，因此这里不校验 requestMessage.getBody()。
         if (requestMessage == null) {
             throw new IllegalArgumentException("传输内容为空");
         }
@@ -50,7 +50,7 @@ public class RpcClient {
              // DataInputStream 可以按照服务端发送时使用的相同格式读取消息长度和消息内容。
              DataInputStream inputStream = new DataInputStream(clientSocket.getInputStream())
         ) {
-            // 序列化完整 RpcMessage，确保 messageType、requestId 和 data 都能够传到服务端。
+            // 序列化完整 RpcMessage，确保 messageType、requestId 和 body 都能够传到服务端。
             byte[] clientData = serializer.serialize(requestMessage);
 
             // TCP 没有消息边界，因此先发送长度，再发送对应数量的消息字节。
