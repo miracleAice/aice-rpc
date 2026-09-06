@@ -39,7 +39,7 @@ public class RpcMessage implements Serializable {
     /**
      * 请求 ID，用于异步响应时关联对应请求
      */
-    private String requestId;
+    private long requestId;
 
     /**
      * 消息体

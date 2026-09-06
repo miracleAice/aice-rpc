@@ -6,7 +6,7 @@ import com.aice.rpc.protocol.RpcResponse;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * RPC 客户端动态代理调用处理器。
@@ -15,6 +15,8 @@ import java.util.UUID;
  * @author aice Cheng
  */
 public class RpcClientInvocationHandler implements InvocationHandler {
+    private static final AtomicLong REQUEST_ID_GENERATOR = new AtomicLong(0);
+
     private final RpcClient rpcClient;
 
     public RpcClientInvocationHandler(RpcClient rpcClient) {
@@ -60,8 +62,8 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         Object[] parameterValues = args;
         Class<?>[] parameterTypes = method.getParameterTypes();
         RpcRequest rpcRequest = new RpcRequest(interfaceName, methodName, parameterValues, parameterTypes);
-        // 为本次调用生成唯一请求标识，并将请求体封装为外层 RPC 消息。
-        String requestId = UUID.randomUUID().toString();
+        // 为本次调用生成递增请求标识，并将请求体封装为外层 RPC 消息。
+        long requestId = REQUEST_ID_GENERATOR.incrementAndGet();
         RpcMessage requestMessage = new RpcMessage(RpcMessage.MESSAGE_REQUEST, requestId, rpcRequest);
         RpcMessage responseMessage = rpcClient.send(requestMessage);
         // 校验响应是否属于本次调用，且响应消息结构符合预期。
@@ -71,7 +73,7 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         if (responseMessage.getMessageType() != RpcMessage.MESSAGE_RESPONSE) {
             throw new RuntimeException("服务端返回的不是响应消息");
         }
-        if (!requestId.equals(responseMessage.getRequestId())) {
+        if (requestId != responseMessage.getRequestId()) {
             throw new RuntimeException("响应与请求不匹配");
         }
         if (!(responseMessage.getData() instanceof RpcResponse)) {
