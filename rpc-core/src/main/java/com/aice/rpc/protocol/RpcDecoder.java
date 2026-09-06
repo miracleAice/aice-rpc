@@ -15,6 +15,8 @@ import java.io.IOException;
  */
 public class RpcDecoder {
 
+    public RpcDecoder(){}
+
     /**
      * 将字节数组解码为 RPC 消息。
      *

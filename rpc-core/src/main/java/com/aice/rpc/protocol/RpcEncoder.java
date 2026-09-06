@@ -14,6 +14,9 @@ import java.io.IOException;
  * @author aice Cheng
  */
 public class RpcEncoder {
+
+    public RpcEncoder(){}
+
     /**
      * 将 RPC 消息编码为字节数组。
      *

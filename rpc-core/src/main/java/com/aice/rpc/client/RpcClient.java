@@ -1,9 +1,10 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.protocol.RpcDecoder;
+import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
-import com.aice.rpc.serialize.JdkSerializer;
-import com.aice.rpc.serialize.Serializer;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -17,7 +18,8 @@ import java.net.Socket;
 public class RpcClient {
     private final String host;
     private final int port;
-    private final Serializer serializer;
+    private final RpcEncoder encoder;
+    private final RpcDecoder decoder;
 
     /**
      * 创建使用 JDK 序列化的 RPC 客户端。
@@ -28,7 +30,8 @@ public class RpcClient {
     public RpcClient(String host, int port) {
         this.host = host;
         this.port = port;
-        this.serializer = new JdkSerializer();
+        this.encoder = new RpcEncoder(); // RPC 协议编码器
+        this.decoder = new RpcDecoder(); // RPC 协议解码器
     }
 
     /**
@@ -45,40 +48,65 @@ public class RpcClient {
 
         // 每次调用创建一个 Socket，并通过 try-with-resources 保证正常结束或发生异常时都能关闭网络资源。
         try (Socket clientSocket = new Socket(host, port);
-             // DataOutputStream 可以按固定的 4 字节格式写入消息长度，也可以继续写入消息内容。
+             // DataOutputStream 负责将编码后的协议字节写入网络连接。
              DataOutputStream outputStream = new DataOutputStream(clientSocket.getOutputStream());
-             // DataInputStream 可以按照服务端发送时使用的相同格式读取消息长度和消息内容。
+             // DataInputStream 负责从网络连接中读取响应头和响应体。
              DataInputStream inputStream = new DataInputStream(clientSocket.getInputStream())
         ) {
             // 序列化完整 RpcMessage，确保 messageType、requestId 和 body 都能够传到服务端。
-            byte[] clientData = serializer.serialize(requestMessage);
+            byte[] clientBytes = encoder.encode(requestMessage);
 
-            // TCP 没有消息边界，因此先发送长度，再发送对应数量的消息字节。
-            outputStream.writeInt(clientData.length);
-            outputStream.write(clientData);
+            // 编码器 encoder 先写入自定义协议的请求头，再写入请求体
+            outputStream.write(clientBytes);
 
             // 在等待响应前刷新输出流，确保请求数据已经写入底层网络连接。
             outputStream.flush();
 
-            // 读取响应长度，用它确定本次响应消息体应该读取多少字节。
-            int responseLength = inputStream.readInt();
-            if (responseLength <= 0) {
-                throw new IllegalStateException("响应消息长度必须大于0");
-            }
+            // 先读取响应头，获取响应体长度。
+            byte[] headerBytes = new byte[RpcMessage.HEADER_LENGTH];
+            inputStream.readFully(headerBytes);
 
-            // 复用已读取并校验的 responseLength；再次调用 readInt 会消耗消息体前 4 个字节，导致数据错位。
-            byte[] serverData = new byte[responseLength];
+            int bodyLength = getBodyLength(headerBytes);
 
+            // 根据响应体长度读取响应体。
+            byte[] bodyBytes = new byte[bodyLength];
             // 一次普通 read 不保证能读满数组，readFully 会持续读取，直到获得完整响应或连接异常结束。
-            inputStream.readFully(serverData);
+            inputStream.readFully(bodyBytes);
 
-            // 传入 RpcMessage.class，明确要求反序列化器检查并返回 RpcMessage 类型。
-            RpcMessage responseMessage;
-            responseMessage = serializer.deserialize(serverData, RpcMessage.class);
-            return responseMessage;
+            // 将响应头和响应体字节数组拼在一起解码，获取返回的 RpcMessage。
+            byte[] serverBytes = new byte[RpcMessage.HEADER_LENGTH + bodyLength];
+            System.arraycopy(headerBytes, 0, serverBytes, 0, headerBytes.length);
+            System.arraycopy(bodyBytes, 0, serverBytes, headerBytes.length, bodyBytes.length);
+
+            // 将完整响应交给解码器解析为 RpcMessage。
+            return decoder.decode(serverBytes);
         } catch (IOException exception) {
             // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
             throw new IllegalStateException("客户端连接失败", exception);
         }
+    }
+
+    /**
+     * 从协议头字节数组中读取消息体长度。
+     *
+     * @param headerBytes 协议头字节数组
+     * @return 消息体长度
+     * @throws IOException 读取协议头失败时抛出
+     */
+    private int getBodyLength(byte[] headerBytes) throws IOException {
+        int bodyLength;
+        try (
+                ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(headerBytes);
+                DataInputStream headerInputStream = new DataInputStream(byteArrayInputStream)
+                ) {
+            headerInputStream.readInt();      // magic
+            headerInputStream.readByte();     // version
+            headerInputStream.readByte();     // serializerType
+            headerInputStream.readByte();     // messageType
+            headerInputStream.readLong();     // requestId
+            headerInputStream.readByte();     // status
+            bodyLength = headerInputStream.readInt();
+        }
+        return bodyLength;
     }
 }
