@@ -32,7 +32,15 @@ class RpcClientServerTest {
         RpcRequest testRequest = new RpcRequest(CalculatorService.class.getName(), "add",
                                                  new Object[]{1, 2}, new Class<?>[]{int.class, int.class});
         // 构造完整请求消息，requestId 用于验证服务端响应是否属于本次请求。
-        RpcMessage message = new RpcMessage(RpcMessage.MESSAGE_REQUEST, 123L, testRequest);
+        RpcMessage message = new RpcMessage(
+                RpcMessage.VERSION,
+                RpcMessage.SERIALIZER_JDK,
+                RpcMessage.MESSAGE_REQUEST,
+                123L,
+                RpcMessage.STATUS_SUCCESS,
+                0,
+                testRequest
+        );
 
         // RpcServer.start 会阻塞当前线程，因此必须在独立线程中启动服务端。
         Thread serverThread = new Thread(server::start);
