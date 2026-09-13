@@ -11,9 +11,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.Socket;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.*;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -23,6 +21,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class RpcClient {
     private static final Logger log = LoggerFactory.getLogger(RpcClient.class);
+    private static final int TIME_OUT_SECONDS = 66;
 
     private final String host;
     private final int port;
@@ -141,7 +140,7 @@ public class RpcClient {
 
         // 等待响应读取线程完成本次请求。
         try {
-            return requestFuture.get();
+            return requestFuture.get(TIME_OUT_SECONDS, TimeUnit.SECONDS);
         } catch (InterruptedException exception) {
             // 调用线程被中断时清理本次请求，并恢复中断标记。
             pendingRequest.remove(requestId, requestFuture);
@@ -152,6 +151,8 @@ public class RpcClient {
             throw new RuntimeException("客户端等待响应时被中断", exception);
         } catch (ExecutionException exception) {
             throw new RuntimeException("客户端处理响应失败", exception.getCause());
+        } catch (TimeoutException e) {
+            throw new RuntimeException("客户端等待请求超时", e);
         }
     }
 
