@@ -3,7 +3,6 @@ package com.aice.rpc.client;
 import com.aice.rpc.protocol.RpcDecoder;
 import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
-import com.aice.rpc.server.RpcServer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

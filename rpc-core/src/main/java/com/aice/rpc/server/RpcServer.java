@@ -95,16 +95,14 @@ public class RpcServer {
                 Socket clientSocket = listeningSocket.accept();
                 clientSockets.add(clientSocket);
                 try{
-                    executor.execute(new Runnable() {
-                        @Override
-                        public void run() {
-                            try {
-                                handleClient(clientSocket);
-                            } catch (IllegalStateException e) {
-                                // 记录发生异常的客户端地址和完整异常堆栈，便于定位连接处理故障。
-                                log.error("处理客户端连接失败，客户端地址：{}", clientSocket.getRemoteSocketAddress(), e);
-                            }
+                    executor.execute(() -> {
+                        try {
+                            handleClient(clientSocket);
+                        } catch (IllegalStateException e) {
+                            // 记录发生异常的客户端地址和完整异常堆栈，便于定位连接处理故障。
+                            log.error("处理客户端连接失败，客户端地址：{}", clientSocket.getRemoteSocketAddress(), e);
                         }
+
                     });
                 }catch (RejectedExecutionException e) {
                     // 提交任务失败时关闭尚未交给工作线程管理的 clientSocket，避免连接泄漏。
@@ -202,7 +200,7 @@ public class RpcServer {
                         );
 
                         // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
-                        byte[] serverBytes = null;
+                        byte[] serverBytes;
                         try {
                             serverBytes = encoder.encode(serverMessage);
                         } catch (IOException e) {
