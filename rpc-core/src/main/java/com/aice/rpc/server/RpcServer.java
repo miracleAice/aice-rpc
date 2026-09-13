@@ -127,37 +127,41 @@ public class RpcServer {
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
              DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
 
-            // 从输入流中读取并解码完整请求消息。
-            RpcMessage requestMessage = decoder.decode(inputStream);
+            // 长连接实现：在此处增加读取循环；每轮循环解码一条请求、处理并写回一条响应。
+            // 仅在客户端关闭连接或发生不可恢复的读取异常时结束循环，随后由 try-with-resources 关闭资源。
+            while (true) {
+                // 从输入流中读取并解码完整请求消息。
+                RpcMessage requestMessage = decoder.decode(inputStream);
 
-            // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
-            RpcResponse serverResponse;
-            if ((requestMessage.getBody() instanceof RpcRequest)) {
-                // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
-                RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
-                serverResponse = requestHandler.handle((RpcRequest) requestMessage.getBody());
-            }else {
-                serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
+                // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
+                RpcResponse serverResponse;
+                if ((requestMessage.getBody() instanceof RpcRequest)) {
+                    // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
+                    RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
+                    serverResponse = requestHandler.handle((RpcRequest) requestMessage.getBody());
+                }else {
+                    serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
+                }
+                // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
+                RpcMessage serverMessage = new RpcMessage(
+                        requestMessage.getVersion(),
+                        requestMessage.getSerializerType(),
+                        RpcMessage.MESSAGE_RESPONSE,
+                        requestMessage.getRequestId(),
+                        RpcMessage.STATUS_SUCCESS,
+                        0,
+                        serverResponse
+                );
+
+                // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
+                byte[] serverBytes = encoder.encode(serverMessage);
+
+                // 将编码后的响应协议字节写入网络连接。
+                outputStream.write(serverBytes);
+
+                // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
+                outputStream.flush();
             }
-            // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
-            RpcMessage serverMessage = new RpcMessage(
-                    requestMessage.getVersion(),
-                    requestMessage.getSerializerType(),
-                    RpcMessage.MESSAGE_RESPONSE,
-                    requestMessage.getRequestId(),
-                    RpcMessage.STATUS_SUCCESS,
-                    0,
-                    serverResponse
-            );
-
-            // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
-            byte[] serverBytes = encoder.encode(serverMessage);
-
-            // 将编码后的响应协议字节写入网络连接。
-            outputStream.write(serverBytes);
-
-            // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
-            outputStream.flush();
         } catch (EOFException exception) {
             // 客户端未发送完整请求便关闭连接时，结束当前任务而不记录为服务端错误。
             log.debug("客户端连接已关闭，客户端地址：{}", clientSocket.getRemoteSocketAddress());
