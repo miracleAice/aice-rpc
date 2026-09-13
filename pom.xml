@@ -18,5 +18,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <lombok.version>1.18.46</lombok.version>
         <junit.version>5.14.2</junit.version>
+        <slf4j.version>2.0.17</slf4j.version>
+        <logback.version>1.5.22</logback.version>
     </properties>
 </project>

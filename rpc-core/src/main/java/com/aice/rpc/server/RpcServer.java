@@ -8,12 +8,15 @@ import com.aice.rpc.protocol.RpcMessage;
 import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
 import com.aice.rpc.registry.ServiceRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.*;
 
 /**
  * 最小 RPC 服务端，负责监听客户端连接、调用本地服务并返回 RPC 响应。
@@ -21,6 +24,8 @@ import java.net.Socket;
  * @author aice Cheng
  */
 public class RpcServer {
+    private static final Logger log = LoggerFactory.getLogger(RpcServer.class);
+
     private final int port;
     private final RpcEncoder encoder;
     private final RpcDecoder decoder;
@@ -31,6 +36,11 @@ public class RpcServer {
     // 保存当前监听 Socket，使 stop 方法能够主动关闭它并解除 accept 的阻塞。
     private ServerSocket serverSocket;
 
+    private final static int WORK_QUEUE_MAX_CAPACITY = 20;
+
+    private final ExecutorService executor;
+
+    // 获取服务注册表
     private final ServiceRegistry serviceRegistry = new ServiceRegistry();
 
     /**
@@ -42,6 +52,10 @@ public class RpcServer {
         this.port = port;
         this.encoder = new RpcEncoder();
         this.decoder = new RpcDecoder();
+        // 创建有界任务队列和连接线程池，每个任务负责处理一个客户端连接。
+        BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<>(WORK_QUEUE_MAX_CAPACITY);
+        executor = new ThreadPoolExecutor(
+                5, 10, 1000, TimeUnit.MILLISECONDS, workQueue);
     }
 
     /**
@@ -59,11 +73,34 @@ public class RpcServer {
             // ServerSocket 创建成功后才标记为运行中，避免端口绑定失败时留下错误状态。
             running = true;
 
-            // 第一版采用同步单线程模型，每次接收并处理完一个连接后再等待下一个连接。
             while (running) {
+                // accept 线程只负责接收连接，客户端请求交给连接线程池处理。
                 // accept 会阻塞等待客户端连接；使用局部变量 listeningSocket，避免依赖可能变化的字段。
                 Socket clientSocket = listeningSocket.accept();
-                handleClient(clientSocket);
+                try{
+                    executor.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            try {
+                                handleClient(clientSocket);
+                            } catch (IllegalStateException exception) {
+                                // 记录发生异常的客户端地址和完整异常堆栈，便于定位连接处理故障。
+                                log.error("处理客户端连接失败，客户端地址：{}",
+                                        clientSocket.getRemoteSocketAddress(), exception);
+                            }
+                        }
+                    });
+                }catch (RejectedExecutionException e) {
+                    // 提交任务失败时关闭尚未交给工作线程管理的 clientSocket，避免连接泄漏。
+                    try{
+                        clientSocket.close();
+                    }catch (IOException closeException) {
+                        e.addSuppressed(closeException);
+                    }
+                    if (running) {
+                        log.warn("客户端连接任务被拒绝", e);
+                    }
+                }
             }
         } catch (IOException exception) {
             // stop 会先把 running 设为 false，再关闭 ServerSocket，使 accept 抛出 IOException。
@@ -72,6 +109,7 @@ public class RpcServer {
                 throw new IllegalStateException("服务端连接失败", exception);
             }
         }finally {
+            executor.shutdown();
             // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
             running = false;
             serverSocket = null;
@@ -104,7 +142,7 @@ public class RpcServer {
             // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
             RpcMessage serverMessage = new RpcMessage(
                     requestMessage.getVersion(),
-                    RpcMessage.SERIALIZER_JDK,
+                    requestMessage.getSerializerType(),
                     RpcMessage.MESSAGE_RESPONSE,
                     requestMessage.getRequestId(),
                     RpcMessage.STATUS_SUCCESS,
