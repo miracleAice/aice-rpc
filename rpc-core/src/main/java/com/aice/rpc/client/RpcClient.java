@@ -20,17 +20,48 @@ public class RpcClient {
     private final RpcEncoder encoder;
     private final RpcDecoder decoder;
 
+    // 长连接实现：Socket、DataOutputStream 和 DataInputStream 改为成员字段。
+    // 它们由整个 RpcClient 实例复用，不能再在 send 方法中使用 try-with-resources 自动关闭。
+    private final Socket clientSocket;
+    private final DataOutputStream outputStream;
+    private final DataInputStream inputStream;
+
     /**
      * 创建使用 JDK 序列化的 RPC 客户端。
      *
      * @param host 服务端地址
      * @param port 服务端端口
      */
-    public RpcClient(String host, int port) {
+    public RpcClient(String host, int port){
         this.host = host;
         this.port = port;
         this.encoder = new RpcEncoder(); // RPC 协议编码器
         this.decoder = new RpcDecoder(); // RPC 协议解码器
+        // 使用局部变量保存尚未完成初始化的 Socket，避免中途失败时泄漏连接。
+        Socket socket = null;
+        try {
+            // 先建立 TCP 连接，再基于同一个连接创建输入输出流。
+            socket = new Socket(host, port);
+            DataOutputStream output = new DataOutputStream(socket.getOutputStream());
+            DataInputStream input = new DataInputStream(socket.getInputStream());
+
+            // 全部资源都初始化成功后，再赋值给不可变成员字段。
+            this.clientSocket = socket;
+            this.outputStream = output;
+            this.inputStream = input;
+        } catch (IOException exception) {
+            // 初始化过程中失败时，关闭 Socket 会同时关闭已关联的输入输出流。
+            if (socket != null) {
+                try {
+                    socket.close();
+                } catch (IOException closeException) {
+                    // 保留关闭失败原因，便于调用方获取完整的异常信息。
+                    exception.addSuppressed(closeException);
+                }
+            }
+            // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
+            throw new IllegalStateException("客户端连接失败", exception);
+        }
     }
 
     /**
@@ -45,13 +76,8 @@ public class RpcClient {
             throw new IllegalArgumentException("传输内容为空");
         }
 
-        // 每次调用创建一个 Socket，并通过 try-with-resources 保证正常结束或发生异常时都能关闭网络资源。
-        try (Socket clientSocket = new Socket(host, port);
-             // DataOutputStream 负责将编码后的协议字节写入网络连接。
-             DataOutputStream outputStream = new DataOutputStream(clientSocket.getOutputStream());
-             // DataInputStream 负责从网络连接中读取响应头和响应体。
-             DataInputStream inputStream = new DataInputStream(clientSocket.getInputStream())
-        ) {
+        // send 只负责编码、写入、刷新和读取本次响应；不要在此处关闭连接。
+        try {
             // 将 RpcMessage 编码为自定义协议字节：写入协议头，并序列化消息体
             byte[] clientBytes = encoder.encode(requestMessage);
 
@@ -63,9 +89,19 @@ public class RpcClient {
 
             // 从输入流中读取并解码完整响应消息。
             return decoder.decode(inputStream);
-        } catch (IOException exception) {
-            // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
-            throw new IllegalStateException("客户端连接失败", exception);
+        }catch (IOException e) {
+            throw new RuntimeException("客户端写入失败", e);
         }
     }
+
+    // 调用方完成全部 RPC 调用后显式调用该方法关闭连接。
+    public void close() {
+        try {
+            // 关闭 socket 后输入/输出流也会随之关闭
+            this.clientSocket.close();
+        }catch (IOException e) {
+            throw new RuntimeException("连接关闭失败", e);
+        }
+    }
+
 }
