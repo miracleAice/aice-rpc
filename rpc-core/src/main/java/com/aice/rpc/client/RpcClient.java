@@ -20,7 +20,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class RpcClient {
     private static final Logger log = LoggerFactory.getLogger(RpcClient.class);
-    private static final int TIME_OUT_SECONDS = 66;
+    private static final int TIME_OUT_SECONDS = 6;
 
     private final String host;
     private final int port;

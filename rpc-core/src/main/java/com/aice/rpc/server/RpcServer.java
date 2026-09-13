@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class RpcServer {
     private static final Logger log = LoggerFactory.getLogger(RpcServer.class);
-    private static final int TIME_OUT_SECONDS = 88;
+    private static final int TIME_OUT_SECONDS = 8;
 
     private final int port;
     private final RpcEncoder encoder;
@@ -93,6 +93,11 @@ public class RpcServer {
                 // accept 线程只负责接收连接，客户端请求交给连接线程池处理。
                 // accept 会阻塞等待客户端连接；使用局部变量 listeningSocket，避免依赖可能变化的字段。
                 Socket clientSocket = listeningSocket.accept();
+                // stop 与 accept 同时发生时，立即关闭刚建立的连接，避免遗漏清理。
+                if (!running) {
+                    clientSocket.close();
+                    break;
+                }
                 clientSockets.add(clientSocket);
                 try{
                     executor.execute(() -> {
