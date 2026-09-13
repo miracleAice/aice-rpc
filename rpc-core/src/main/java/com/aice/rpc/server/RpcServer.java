@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class RpcServer {
     private static final Logger log = LoggerFactory.getLogger(RpcServer.class);
-    private static final int TIME_OUT_SECONDS = 8;
+    private static final int TIME_OUT_SECONDS = 88;
 
     private final int port;
     private final RpcEncoder encoder;
@@ -129,11 +129,13 @@ public class RpcServer {
                 throw new IllegalStateException("服务端连接失败", exception);
             }
         }finally {
-            // 先同时拒绝两个线程池的新任务，再分别等待已提交任务结束。
+            // 两个线程池共用同一截止时间，避免依次等待导致总关闭时间累加。
+            long shutdownDeadline = System.nanoTime()
+                    + TimeUnit.SECONDS.toNanos(TIME_OUT_SECONDS);
             executor.shutdown();
             handlerExecuter.shutdown();
-            awaitExecutorTermination(executor);
-            awaitExecutorTermination(handlerExecuter);
+            awaitExecutorTermination(executor, shutdownDeadline);
+            awaitExecutorTermination(handlerExecuter, shutdownDeadline);
 
             // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
             running = false;
@@ -142,13 +144,16 @@ public class RpcServer {
     }
 
     /**
-     * 等待线程池中的任务结束，等待超时或当前线程被中断时强制停止剩余任务。
+     * 在统一截止时间内等待线程池结束，超时或当前线程被中断时强制停止剩余任务。
      *
      * @param executorService 已调用 shutdown 的线程池
+     * @param shutdownDeadline 所有线程池共用的关闭截止时间
      */
-    private void awaitExecutorTermination(ExecutorService executorService) {
+    private void awaitExecutorTermination(ExecutorService executorService, long shutdownDeadline) {
+        long remainingTime = shutdownDeadline - System.nanoTime();
         try {
-            if (!executorService.awaitTermination(TIME_OUT_SECONDS, TimeUnit.SECONDS)) {
+            if (remainingTime <= 0
+                    || !executorService.awaitTermination(remainingTime, TimeUnit.NANOSECONDS)) {
                 executorService.shutdownNow();
             }
         } catch (InterruptedException exception) {
