@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * 最小 RPC 服务端，负责监听客户端连接、调用本地服务并返回 RPC 响应。
@@ -38,8 +40,12 @@ public class RpcServer {
     private ServerSocket serverSocket;
 
     private final static int WORK_QUEUE_MAX_CAPACITY = 20;
+    private final static int HANDLER_WORK_QUEUE_MAX_CAPACITY = 100;
 
     private final ExecutorService executor;
+
+    // TODO 单连接多请求：新增业务线程池，专门执行 RpcRequestHandler。
+    private final ExecutorService handlerExecuter;
 
     // 获取服务注册表
     private final ServiceRegistry serviceRegistry = new ServiceRegistry();
@@ -55,8 +61,12 @@ public class RpcServer {
         this.decoder = new RpcDecoder();
         // 创建有界任务队列和连接线程池，每个任务负责处理一个客户端连接。
         BlockingQueue<Runnable> workQueue = new LinkedBlockingQueue<>(WORK_QUEUE_MAX_CAPACITY);
+        BlockingQueue<Runnable> handlerWorkQueue = new LinkedBlockingQueue<>(HANDLER_WORK_QUEUE_MAX_CAPACITY);
         executor = new ThreadPoolExecutor(
                 5, 10, 1000, TimeUnit.MILLISECONDS, workQueue);
+        // TODO 单连接多请求：在此处创建业务线程池，与连接线程池分开管理。
+        handlerExecuter = new ThreadPoolExecutor(
+                10, 20, 1000, TimeUnit.MILLISECONDS, handlerWorkQueue);
     }
 
     /**
@@ -110,6 +120,8 @@ public class RpcServer {
             }
         }finally {
             executor.shutdown();
+            // TODO 单连接多请求：关闭业务线程池。
+            handlerExecuter.shutdown();
             // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
             running = false;
             serverSocket = null;
@@ -117,11 +129,15 @@ public class RpcServer {
     }
 
     /**
-     * 读取一个客户端请求，执行对应的本地服务方法，并返回调用结果。
+     * 读取一个客户端请求连接，执行对应的本地服务方法，并返回调用结果。
      *
      * @param clientSocket 已建立连接的客户端 Socket
      */
     private void handleClient(Socket clientSocket) {
+        // 创建写锁控制单连接内的多个请求，每个连接一把锁
+        ReentrantLock lock = new ReentrantLock();
+        // 标记客户端是否已断开，阻止该连接尚未执行的业务任务继续处理。
+        AtomicBoolean clientClosed = new AtomicBoolean(false);
         // 同时管理客户端 Socket 和输入输出流，确保处理成功或失败时都能释放本次连接。
         try (Socket socket = clientSocket;
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
@@ -132,41 +148,94 @@ public class RpcServer {
             while (true) {
                 // 从输入流中读取并解码完整请求消息。
                 RpcMessage requestMessage = decoder.decode(inputStream);
+                try {
+                    // TODO 单连接多请求：将下面的请求处理和响应发送逻辑提交给业务线程池。
+                    handlerExecuter.execute(() -> {
+                        // 客户端已断开时跳过尚未开始执行的业务任务。
+                        if (clientClosed.get()) {
+                            return;
+                        }
+                        // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
+                        RpcResponse serverResponse;
+                        if ((requestMessage.getBody() instanceof RpcRequest)) {
+                            // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
+                            RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
+                            serverResponse = requestHandler.handle((RpcRequest) requestMessage.getBody());
+                        }else {
+                            serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
+                        }
+                        // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
+                        RpcMessage serverMessage = new RpcMessage(
+                                requestMessage.getVersion(),
+                                requestMessage.getSerializerType(),
+                                RpcMessage.MESSAGE_RESPONSE,
+                                requestMessage.getRequestId(),
+                                RpcMessage.STATUS_SUCCESS,
+                                0,
+                                serverResponse
+                        );
 
-                // 处理请求前需先校验请求消息体是否为 RpcRequest 类型。
-                RpcResponse serverResponse;
-                if ((requestMessage.getBody() instanceof RpcRequest)) {
-                    // Handler 负责查询本地服务、定位目标方法并反射调用，返回成功或失败的 RpcResponse。
-                    RpcRequestHandler requestHandler = new RpcRequestHandler(serviceRegistry);
-                    serverResponse = requestHandler.handle((RpcRequest) requestMessage.getBody());
-                }else {
-                    serverResponse = new RpcResponse(RpcResponse.FAILURE, null, "请求体类型错误");
+                        // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
+                        byte[] serverBytes = null;
+                        try {
+                            serverBytes = encoder.encode(serverMessage);
+                        } catch (IOException e) {
+                            throw new RuntimeException("响应消息编码异常", e);
+                        }
+
+                        // TODO 单连接多请求：多个业务线程写响应前必须获取写锁。
+                        lock.lock();
+                        try {
+                            // 已执行的业务任务在写响应前再次确认客户端连接仍有效。
+                            if (clientClosed.get()) {
+                                return;
+                            }
+                            // 将编码后的响应协议字节写入网络连接。
+                            outputStream.write(serverBytes);
+                            // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
+                            outputStream.flush();
+                        } catch (IOException e) {
+                            throw new RuntimeException(e);
+                        }finally {
+                            lock.unlock();
+                        }
+                    });
+                }catch (RejectedExecutionException e) {
+                    log.warn("客户端连接{}请求过多，请求{}被拒绝",
+                            clientSocket.getRemoteSocketAddress(), requestMessage.getRequestId(), e);
+                    // 返回失败响应，避免客户端一直等待被拒绝的请求。
+                    RpcResponse rejectedResponse = new RpcResponse(
+                            RpcResponse.FAILURE, null, "服务端繁忙，请稍后重试");
+                    RpcMessage rejectedMessage = new RpcMessage(
+                            requestMessage.getVersion(),
+                            requestMessage.getSerializerType(),
+                            RpcMessage.MESSAGE_RESPONSE,
+                            requestMessage.getRequestId(),
+                            RpcMessage.STATUS_FAIL,
+                            0,
+                            rejectedResponse
+                    );
+                    try {
+                        byte[] rejectedBytes = encoder.encode(rejectedMessage);
+                        lock.lock();
+                        try {
+                            outputStream.write(rejectedBytes);
+                            outputStream.flush();
+                        } finally {
+                            lock.unlock();
+                        }
+                    } catch (IOException exception) {
+                        throw new IllegalStateException("发送任务拒绝响应失败", exception);
+                    }
                 }
-                // 响应沿用请求的 requestId，使客户端能够确定该响应属于哪一次请求。
-                RpcMessage serverMessage = new RpcMessage(
-                        requestMessage.getVersion(),
-                        requestMessage.getSerializerType(),
-                        RpcMessage.MESSAGE_RESPONSE,
-                        requestMessage.getRequestId(),
-                        RpcMessage.STATUS_SUCCESS,
-                        0,
-                        serverResponse
-                );
-
-                // 编码完整响应消息，保留响应类型、requestId 和 RpcResponse。
-                byte[] serverBytes = encoder.encode(serverMessage);
-
-                // 将编码后的响应协议字节写入网络连接。
-                outputStream.write(serverBytes);
-
-                // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
-                outputStream.flush();
             }
         } catch (EOFException exception) {
             // 客户端未发送完整请求便关闭连接时，结束当前任务而不记录为服务端错误。
+            clientClosed.set(true);
             log.debug("客户端连接已关闭，客户端地址：{}", clientSocket.getRemoteSocketAddress());
         } catch (IOException exception) {
             // 将底层网络异常转换为服务端处理异常，同时保留原始异常原因。
+            clientClosed.set(true);
             throw new IllegalStateException("处理客户端连接失败", exception);
         }
     }
