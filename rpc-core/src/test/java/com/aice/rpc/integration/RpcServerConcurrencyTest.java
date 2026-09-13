@@ -30,6 +30,34 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 class RpcServerConcurrencyTest {
 
     /**
+     * 验证同一个 RpcClient 连续发送两条请求时，服务端不会在第一条响应后关闭连接。
+     */
+    @Test
+    void shouldSendTwoRequestsOverOneConnection() throws Exception {
+        int port = findAvailablePort();
+        RpcServer server = new RpcServer(port);
+        Thread serverThread = new Thread(server::start);
+        serverThread.start();
+
+        try {
+            // 等待服务端完成端口监听后再创建客户端连接。
+            Thread.sleep(100);
+            RpcClient client = new RpcClient("localhost", port);
+            try {
+                // 同一个 client 实例连续发送两次请求，第二次成功说明连接被复用。
+                assertResponse(client.send(requestMessage(201L, 1, 2)), 201L, 3);
+                assertResponse(client.send(requestMessage(202L, 3, 4)), 202L, 7);
+            } finally {
+                client.close();
+            }
+        } finally {
+            // 无论断言是否成功，均停止服务端并等待监听线程退出。
+            server.stop();
+            serverThread.join();
+        }
+    }
+
+    /**
      * 验证慢客户端阻塞在读取协议头时，其他客户端仍能完成 RPC 调用。
      */
     @Test
