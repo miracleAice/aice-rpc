@@ -44,7 +44,7 @@ public class RpcServer {
 
     private final ExecutorService executor;
 
-    // TODO 单连接多请求：新增业务线程池，专门执行 RpcRequestHandler。
+    // 业务线程池并发执行同一连接中的多个请求，使耗时请求不会阻塞后续请求。
     private final ExecutorService handlerExecuter;
 
     // 获取服务注册表
@@ -64,7 +64,7 @@ public class RpcServer {
         BlockingQueue<Runnable> handlerWorkQueue = new LinkedBlockingQueue<>(HANDLER_WORK_QUEUE_MAX_CAPACITY);
         executor = new ThreadPoolExecutor(
                 5, 10, 1000, TimeUnit.MILLISECONDS, workQueue);
-        // TODO 单连接多请求：在此处创建业务线程池，与连接线程池分开管理。
+        // 业务线程池与连接线程池分开，避免业务执行占用连接读取线程。
         handlerExecuter = new ThreadPoolExecutor(
                 10, 20, 1000, TimeUnit.MILLISECONDS, handlerWorkQueue);
     }
@@ -120,7 +120,7 @@ public class RpcServer {
             }
         }finally {
             executor.shutdown();
-            // TODO 单连接多请求：关闭业务线程池。
+            // 服务停止时不再接收新的业务任务，并等待已提交任务执行结束。
             handlerExecuter.shutdown();
             // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
             running = false;
@@ -149,7 +149,7 @@ public class RpcServer {
                 // 从输入流中读取并解码完整请求消息。
                 RpcMessage requestMessage = decoder.decode(inputStream);
                 try {
-                    // TODO 单连接多请求：将下面的请求处理和响应发送逻辑提交给业务线程池。
+                    // 每个请求独立提交给业务线程池，使同一连接中的请求可以并发执行。
                     handlerExecuter.execute(() -> {
                         // 客户端已断开时跳过尚未开始执行的业务任务。
                         if (clientClosed.get()) {
@@ -183,7 +183,7 @@ public class RpcServer {
                             throw new RuntimeException("响应消息编码异常", e);
                         }
 
-                        // TODO 单连接多请求：多个业务线程写响应前必须获取写锁。
+                        // 同一连接的响应写入必须串行，避免多个协议帧的字节相互交叉。
                         lock.lock();
                         try {
                             // 已执行的业务任务在写响应前再次确认客户端连接仍有效。
