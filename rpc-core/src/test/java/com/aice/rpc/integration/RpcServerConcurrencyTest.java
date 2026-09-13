@@ -7,11 +7,13 @@ import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
 import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
+import com.aice.rpc.registry.ServiceRegistry;
 import com.aice.rpc.server.RpcServer;
 import org.junit.jupiter.api.Test;
 
 import java.io.DataInputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +22,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 /**
@@ -27,7 +30,43 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
  *
  * @author aice Cheng
  */
-class RpcServerConcurrencyTest {
+public class RpcServerConcurrencyTest {
+
+    /**
+     * 验证先发出的慢请求不会阻塞后发出的快请求响应。
+     */
+    @Test
+    void shouldReturnFastResponseBeforeEarlierSlowRequest() throws Exception {
+        int port = findAvailablePort();
+        RpcServer server = new RpcServer(port);
+        Thread serverThread = new Thread(server::start);
+        ExecutorService callerExecutor = Executors.newFixedThreadPool(2);
+        serverThread.start();
+
+        try {
+            // 服务端启动后替换为测试专用实现，不修改生产服务接口和实现。
+            Thread.sleep(100);
+            replaceCalculatorService(server, new DelayedCalculatorService());
+            RpcClient client = new RpcClient("localhost", port);
+            try {
+                Future<RpcMessage> slowResponse = callerExecutor.submit(
+                        () -> client.send(requestMessage(401L, 1, 2)));
+                Thread.sleep(100);
+                Future<RpcMessage> fastResponse = callerExecutor.submit(
+                        () -> client.send(requestMessage(402L, 3, 4)));
+
+                assertResponse(fastResponse.get(1, TimeUnit.SECONDS), 402L, 7);
+                assertFalse(slowResponse.isDone(), "慢请求不应在快请求之前完成");
+                assertResponse(slowResponse.get(1, TimeUnit.SECONDS), 401L, 3);
+            } finally {
+                client.close();
+            }
+        } finally {
+            callerExecutor.shutdownNow();
+            server.stop();
+            serverThread.join();
+        }
+    }
 
     /**
      * 验证多个线程共用同一个客户端连接发送请求时，响应能按 requestId 正确关联。
@@ -153,6 +192,47 @@ class RpcServerConcurrencyTest {
                 new Object[]{left, right}, new Class<?>[]{int.class, int.class});
         return new RpcMessage(RpcMessage.VERSION_1, RpcMessage.SERIALIZER_JDK,
                 RpcMessage.MESSAGE_REQUEST, requestId, RpcMessage.STATUS_SUCCESS, 0, request);
+    }
+
+    /**
+     * 通过反射取得服务端注册表，并替换计算服务的测试实现。
+     *
+     * @param server 待测试的 RPC 服务端
+     * @param service 测试专用计算服务
+     * @throws ReflectiveOperationException 读取注册表字段失败时抛出
+     */
+    private void replaceCalculatorService(RpcServer server, CalculatorService service)
+            throws ReflectiveOperationException {
+        Field registryField = RpcServer.class.getDeclaredField("serviceRegistry");
+        registryField.setAccessible(true);
+        ServiceRegistry registry = (ServiceRegistry) registryField.get(server);
+        registry.register(CalculatorService.class, service);
+    }
+
+    /**
+     * 测试专用计算服务，仅对指定参数增加延迟。
+     */
+    public static class DelayedCalculatorService implements CalculatorService {
+
+        /**
+         * 计算两个整数之和，参数为 1 和 2 时模拟耗时业务。
+         *
+         * @param a 第一个加数
+         * @param b 第二个加数
+         * @return 两个整数之和
+         */
+        @Override
+        public int add(int a, int b) {
+            if (a == 1 && b == 2) {
+                try {
+                    Thread.sleep(800);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException("测试服务等待被中断", exception);
+                }
+            }
+            return a + b;
+        }
     }
 
     /**
