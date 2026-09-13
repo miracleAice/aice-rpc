@@ -30,6 +30,40 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 class RpcServerConcurrencyTest {
 
     /**
+     * 验证多个线程共用同一个客户端连接发送请求时，响应能按 requestId 正确关联。
+     */
+    @Test
+    void shouldMatchResponsesForConcurrentRequestsOnOneConnection() throws Exception {
+        int port = findAvailablePort();
+        RpcServer server = new RpcServer(port);
+        Thread serverThread = new Thread(server::start);
+        ExecutorService callerExecutor = Executors.newFixedThreadPool(2);
+        serverThread.start();
+
+        try {
+            // 等待服务端开始监听后，创建一个将被两个调用线程共享的客户端。
+            Thread.sleep(100);
+            RpcClient client = new RpcClient("localhost", port);
+            try {
+                Future<RpcMessage> firstResponse = callerExecutor.submit(
+                        () -> client.send(requestMessage(301L, 1, 2)));
+                Future<RpcMessage> secondResponse = callerExecutor.submit(
+                        () -> client.send(requestMessage(302L, 3, 4)));
+
+                assertResponse(firstResponse.get(1, TimeUnit.SECONDS), 301L, 3);
+                assertResponse(secondResponse.get(1, TimeUnit.SECONDS), 302L, 7);
+            } finally {
+                client.close();
+            }
+        } finally {
+            // 无论断言是否成功，均停止调用线程池和服务端。
+            callerExecutor.shutdownNow();
+            server.stop();
+            serverThread.join();
+        }
+    }
+
+    /**
      * 验证同一个 RpcClient 连续发送两条请求时，服务端不会在第一条响应后关闭连接。
      */
     @Test
