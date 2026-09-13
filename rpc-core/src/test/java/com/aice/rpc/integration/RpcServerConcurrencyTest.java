@@ -145,12 +145,12 @@ public class RpcServerConcurrencyTest {
             // 等待服务端开始监听，随后建立两个暂不发送数据的慢连接。
             Thread.sleep(100);
             try (Socket slowClientOne = new Socket("localhost", port);
-                 Socket slowClientTwo = new Socket("localhost", port)) {
+                Socket slowClientTwo = new Socket("localhost", port)) {
                 // 两个慢连接占用工作线程时，两个正常 RPC 仍应由其他工作线程及时完成。
                 Future<RpcMessage> firstResponse = clientExecutor.submit(
-                        () -> new RpcClient("localhost", port).send(requestMessage(101L, 1, 2)));
+                        () -> sendAndClose(port, requestMessage(101L, 1, 2)));
                 Future<RpcMessage> secondResponse = clientExecutor.submit(
-                        () -> new RpcClient("localhost", port).send(requestMessage(102L, 3, 4)));
+                        () -> sendAndClose(port, requestMessage(102L, 3, 4)));
 
                 assertResponse(firstResponse.get(1, TimeUnit.SECONDS), 101L, 3);
                 assertResponse(secondResponse.get(1, TimeUnit.SECONDS), 102L, 7);
@@ -164,6 +164,22 @@ public class RpcServerConcurrencyTest {
             clientExecutor.shutdownNow();
             server.stop();
             serverThread.join();
+        }
+    }
+
+    /**
+     * 使用独立客户端完成一次调用，并在响应返回后关闭连接。
+     *
+     * @param port 服务端端口
+     * @param requestMessage 请求消息
+     * @return 服务端响应消息
+     */
+    private RpcMessage sendAndClose(int port, RpcMessage requestMessage) {
+        RpcClient client = new RpcClient("localhost", port);
+        try {
+            return client.send(requestMessage);
+        } finally {
+            client.close();
         }
     }
 

@@ -17,6 +17,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
@@ -28,6 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public class RpcServer {
     private static final Logger log = LoggerFactory.getLogger(RpcServer.class);
+    private static final int TIME_OUT_SECONDS = 88;
 
     private final int port;
     private final RpcEncoder encoder;
@@ -38,6 +40,9 @@ public class RpcServer {
 
     // 保存当前监听 Socket，使 stop 方法能够主动关闭它并解除 accept 的阻塞。
     private ServerSocket serverSocket;
+
+    // 保存正在处理的客户端连接，使 stop 能解除连接线程的阻塞读取。
+    private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
 
     private final static int WORK_QUEUE_MAX_CAPACITY = 20;
     private final static int HANDLER_WORK_QUEUE_MAX_CAPACITY = 100;
@@ -88,6 +93,7 @@ public class RpcServer {
                 // accept 线程只负责接收连接，客户端请求交给连接线程池处理。
                 // accept 会阻塞等待客户端连接；使用局部变量 listeningSocket，避免依赖可能变化的字段。
                 Socket clientSocket = listeningSocket.accept();
+                clientSockets.add(clientSocket);
                 try{
                     executor.execute(new Runnable() {
                         @Override
@@ -102,6 +108,7 @@ public class RpcServer {
                     });
                 }catch (RejectedExecutionException e) {
                     // 提交任务失败时关闭尚未交给工作线程管理的 clientSocket，避免连接泄漏。
+                    clientSockets.remove(clientSocket);
                     try{
                         clientSocket.close();
                     }catch (IOException closeException) {
@@ -119,12 +126,31 @@ public class RpcServer {
                 throw new IllegalStateException("服务端连接失败", exception);
             }
         }finally {
+            // 先同时拒绝两个线程池的新任务，再分别等待已提交任务结束。
             executor.shutdown();
-            // 服务停止时不再接收新的业务任务，并等待已提交任务执行结束。
             handlerExecuter.shutdown();
+            awaitExecutorTermination(executor);
+            awaitExecutorTermination(handlerExecuter);
+
             // ServerSocket 已由 try-with-resources 关闭，finally 只负责恢复对象的状态，不在这里抛出关闭异常。
             running = false;
             serverSocket = null;
+        }
+    }
+
+    /**
+     * 等待线程池中的任务结束，等待超时或当前线程被中断时强制停止剩余任务。
+     *
+     * @param executorService 已调用 shutdown 的线程池
+     */
+    private void awaitExecutorTermination(ExecutorService executorService) {
+        try {
+            if (!executorService.awaitTermination(TIME_OUT_SECONDS, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException exception) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -234,9 +260,17 @@ public class RpcServer {
             clientClosed.set(true);
             log.debug("客户端连接已关闭，客户端地址：{}", clientSocket.getRemoteSocketAddress());
         } catch (IOException exception) {
-            // 将底层网络异常转换为服务端处理异常，同时保留原始异常原因。
             clientClosed.set(true);
+            // stop 主动关闭连接产生的读取异常属于正常退出，不记录为服务端故障。
+            if (!running || clientSocket.isClosed()) {
+                log.debug("客户端连接已关闭，客户端地址：{}", clientSocket.getRemoteSocketAddress());
+                return;
+            }
+            // 将其他网络异常转换为服务端处理异常，同时保留原始异常原因。
             throw new IllegalStateException("处理客户端连接失败", exception);
+        } finally {
+            // 连接处理结束后移除记录，避免服务端长期保存已经关闭的 Socket。
+            clientSockets.remove(clientSocket);
         }
     }
 
@@ -256,15 +290,31 @@ public class RpcServer {
     public void stop() {
         // 先修改运行状态，让 start 方法知道接下来的 Socket 关闭属于主动停止。
         running = false;
+        IOException closeException = null;
         try {
             // stop 可能在服务未启动或已经停止时被调用，因此关闭前需要检查 Socket 状态。
             if (serverSocket != null && !serverSocket.isClosed()) {
                 // 关闭 ServerSocket，使正在阻塞的 accept 立即结束，服务端线程才能退出循环。
                 serverSocket.close();
             }
-        }catch (IOException exception) {
-            // 将底层关闭异常转换为服务端停止异常，同时保留原始异常原因。
-            throw new IllegalStateException("服务端连接关闭失败", exception);
+        } catch (IOException exception) {
+            closeException = exception;
+        }
+        // 逐个关闭活动连接，单个连接关闭失败不会影响其他连接释放。
+        for (Socket clientSocket : clientSockets) {
+            try {
+                clientSocket.close();
+            } catch (IOException exception) {
+                if (closeException == null) {
+                    closeException = exception;
+                } else {
+                    closeException.addSuppressed(exception);
+                }
+            }
+        }
+        if (closeException != null) {
+            // 所有连接均尝试关闭后，再向调用方报告关闭过程中发生的异常。
+            throw new IllegalStateException("服务端连接关闭失败", closeException);
         }
     }
 

@@ -151,8 +151,10 @@ public class RpcClient {
             throw new RuntimeException("客户端等待响应时被中断", exception);
         } catch (ExecutionException exception) {
             throw new RuntimeException("客户端处理响应失败", exception.getCause());
-        } catch (TimeoutException e) {
-            throw new RuntimeException("客户端等待请求超时", e);
+        } catch (TimeoutException exception) {
+            // 超时后删除等待记录，避免迟迟不返回的请求长期占用内存。
+            pendingRequest.remove(requestId, requestFuture);
+            throw new RuntimeException("客户端等待请求超时", exception);
         }
     }
 
