@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -83,10 +84,9 @@ public class RpcServer {
                         public void run() {
                             try {
                                 handleClient(clientSocket);
-                            } catch (IllegalStateException exception) {
+                            } catch (IllegalStateException e) {
                                 // 记录发生异常的客户端地址和完整异常堆栈，便于定位连接处理故障。
-                                log.error("处理客户端连接失败，客户端地址：{}",
-                                        clientSocket.getRemoteSocketAddress(), exception);
+                                log.error("处理客户端连接失败，客户端地址：{}", clientSocket.getRemoteSocketAddress(), e);
                             }
                         }
                     });
@@ -158,7 +158,10 @@ public class RpcServer {
 
             // 处理结束前刷新输出流，确保响应数据已经写入底层网络连接。
             outputStream.flush();
-        }catch (IOException exception) {
+        } catch (EOFException exception) {
+            // 客户端未发送完整请求便关闭连接时，结束当前任务而不记录为服务端错误。
+            log.debug("客户端连接已关闭，客户端地址：{}", clientSocket.getRemoteSocketAddress());
+        } catch (IOException exception) {
             // 将底层网络异常转换为服务端处理异常，同时保留原始异常原因。
             throw new IllegalStateException("处理客户端连接失败", exception);
         }
