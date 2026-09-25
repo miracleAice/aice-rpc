@@ -27,9 +27,16 @@ public class RoundRobinLoadBalancer implements LoadBalancer {
             throw new IllegalArgumentException("没有可用于负载均衡的服务实例");
         }
 
-        // 原子地先返回当前下标，再将下标更新。
-        return instances.get(index.getAndUpdate(
-                currentIndex -> (currentIndex + 1) % instances.size()
-        ));
+        int instanceSize = instances.size();
+        while (true) {
+            int currentIndex = index.get();
+            // 候选列表缩小时，先把旧下标校正到当前列表范围内。
+            int selectedIndex = Math.floorMod(currentIndex, instanceSize);
+            int nextIndex = (selectedIndex + 1) % instanceSize;
+            // 只有成功更新轮询位置的线程才能使用本次选中的下标。
+            if (index.compareAndSet(currentIndex, nextIndex)) {
+                return instances.get(selectedIndex);
+            }
+        }
     }
 }
