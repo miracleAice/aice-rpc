@@ -45,7 +45,7 @@ public class RpcClientInvocationHandler implements InvocationHandler {
      * @throws Throwable 调用过程中发生的异常
      */
     @Override
-    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    public Object invoke(Object proxy, Method method, Object[] args){
         // toString、hashCode 和 equals 也会被动态代理拦截。
         // 它们不属于远程服务方法，因此在本地处理，避免向服务端发送 java.lang.Object 的调用请求。
         if (method.getDeclaringClass() == Object.class) {
