@@ -2,7 +2,7 @@ package com.aice.rpc.integration;
 
 import com.aice.rpc.client.RpcClient;
 import com.aice.rpc.client.RpcProxyUtil;
-import com.aice.rpc.example.service.CalculatorService;
+import com.aice.rpc.service.CalculatorService;
 import com.aice.rpc.server.RpcServer;
 import org.junit.jupiter.api.Test;
 

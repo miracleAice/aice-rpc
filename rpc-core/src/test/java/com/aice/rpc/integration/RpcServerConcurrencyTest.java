@@ -1,7 +1,7 @@
 package com.aice.rpc.integration;
 
 import com.aice.rpc.client.RpcClient;
-import com.aice.rpc.example.service.CalculatorService;
+import com.aice.rpc.service.CalculatorService;
 import com.aice.rpc.protocol.RpcDecoder;
 import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;

@@ -1,4 +1,4 @@
-package com.aice.rpc.example.service;
+package com.aice.rpc.service;
 
 /**
  * 用于验证最小 RPC 调用链路的计算服务接口。

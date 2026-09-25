@@ -1,6 +1,6 @@
-package com.aice.rpc.example.service.impl;
+package com.aice.rpc.service.impl;
 
-import com.aice.rpc.example.service.CalculatorService;
+import com.aice.rpc.service.CalculatorService;
 
 /**
  * 计算服务的默认实现，用于服务端执行真实方法。
