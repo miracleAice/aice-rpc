@@ -6,7 +6,7 @@ import java.util.List;
  * @author aice Cheng
  * Created on  2026/9/25 14:16
  */
-public interface ServiceDiscovery {
+public interface ServiceInstanceDiscovery {
     /**
      * 注册服务实例
      */
