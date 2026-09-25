@@ -11,6 +11,9 @@ import com.aice.rpc.service.CalculatorService;
 import com.aice.rpc.server.RpcServer;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.net.ServerSocket;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -65,6 +68,58 @@ class RpcProxyIntegrationTest {
             }
             server.stop();
             serverThread.join();
+        }
+    }
+
+    /**
+     * 验证第一个节点没有可用客户端连接时，会排除失败节点并切换到第二个节点调用。
+     */
+    @Test
+    void shouldRetryAnotherInstanceAfterConnectionFailure() throws Exception {
+        int availablePort = findAvailablePort();
+        RpcServer server = new RpcServer(availablePort);
+        RpcClientManager clientManager = new RpcClientManager();
+        Thread serverThread = new Thread(server::start);
+        serverThread.start();
+
+        try {
+            Thread.sleep(100);
+
+            ServiceInstanceDiscovery discovery = new InMemoryServiceInstanceDiscovery();
+            LoadBalancerManager loadBalancerManager = new LoadBalancerManager();
+            ServiceInstance unavailableInstance = new ServiceInstance("localhost", findAvailablePort());
+            ServiceInstance availableInstance = new ServiceInstance("localhost", availablePort);
+
+            // 先注册没有客户端连接的节点，确保第一次选择会产生可重试的连接异常。
+            discovery.register(CalculatorService.class.getName(), unavailableInstance);
+            discovery.register(CalculatorService.class.getName(), availableInstance);
+
+            RpcClient availableClient = new RpcClient(availableInstance.getHost(), availableInstance.getPort());
+            clientManager.setClient(availableInstance, availableClient);
+
+            RpcProxyUtil rpcProxyUtil = new RpcProxyUtil(clientManager, discovery, loadBalancerManager);
+            CalculatorService calculatorServiceProxy = rpcProxyUtil.getProxy(CalculatorService.class);
+
+            assertEquals(3, calculatorServiceProxy.add(1, 2));
+        } finally {
+            try {
+                clientManager.close();
+            } finally {
+                server.stop();
+                serverThread.join();
+            }
+        }
+    }
+
+    /**
+     * 获取一个当前未被占用的本地端口。
+     *
+     * @return 可用端口
+     * @throws IOException 无法创建临时 ServerSocket
+     */
+    private int findAvailablePort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0)) {
+            return socket.getLocalPort();
         }
     }
 }

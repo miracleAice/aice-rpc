@@ -24,9 +24,7 @@ class RpcClientServerTest {
     void shouldSendRequestAndReceiveResponse() throws InterruptedException {
         // 创建本地服务端，用于验证客户端和服务端之间的真实 Socket 通信。
         RpcServer server = new RpcServer(8080);
-
-        // 客户端连接到与服务端相同的地址和端口。
-        RpcClient client = new RpcClient("localhost", 8080);
+        RpcClient client = null;
 
         // 请求使用接口全限定名、方法名、参数值和参数类型，准确描述 CalculatorService.add(int, int) 调用。
         RpcRequest testRequest = new RpcRequest(CalculatorService.class.getName(), "add",
@@ -51,6 +49,9 @@ class RpcClientServerTest {
             // 后续可使用 CountDownLatch 等启动通知机制替代固定等待时间。
             Thread.sleep(100);
 
+            // 服务端开始监听后，再创建连接到相同地址和端口的客户端。
+            client = new RpcClient("localhost", 8080);
+
             // 发送请求并同步等待服务端返回响应消息。
             RpcMessage result = client.send(message);
 
@@ -70,7 +71,10 @@ class RpcClientServerTest {
             assertNull(response.getErrorMessage());
 
         } finally {
-            // 无论断言成功或失败都停止服务端，避免后台线程和监听端口遗留到后续测试。
+            // 无论断言成功或失败都关闭客户端并停止服务端，避免连接、线程和端口残留。
+            if (client != null) {
+                client.close();
+            }
             server.stop();
 
             // 等待服务端线程真正结束，确保端口已经释放。
