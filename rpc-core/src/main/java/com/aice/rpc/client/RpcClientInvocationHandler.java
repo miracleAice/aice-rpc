@@ -1,5 +1,6 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.loadbalance.LoadBalancer;
 import com.aice.rpc.loadbalance.LoadBalancerManager;
 import com.aice.rpc.exception.RpcException;
 import com.aice.rpc.exception.RpcRemoteException;
@@ -8,6 +9,8 @@ import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
 import com.aice.rpc.registry.ServiceInstance;
 import com.aice.rpc.registry.ServiceInstanceDiscovery;
+import com.aice.rpc.retry.AiceFirstRetryPolicy;
+import com.aice.rpc.retry.RetryPolicy;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
@@ -25,6 +28,9 @@ public class RpcClientInvocationHandler implements InvocationHandler {
     private final RpcClientManager rpcClientManager;
     private final ServiceInstanceDiscovery discovery;
     private final LoadBalancerManager loadBalancerManager;
+
+    private List<ServiceInstance> attempInstanceList;
+    private RetryPolicy retryPolicy = new AiceFirstRetryPolicy();
 
     public RpcClientInvocationHandler(RpcClientManager rpcClientManager,
                                       ServiceInstanceDiscovery discovery,
@@ -90,13 +96,28 @@ public class RpcClientInvocationHandler implements InvocationHandler {
         // ============== 发送阶段 ==============
         // 根据 serviceName 进行服务发现
         List<ServiceInstance> instanceList = discovery.discover(interfaceName);
-        // 获取当前服务独立使用的负载均衡器，再从服务实例列表中选择实例。
-        ServiceInstance instance = loadBalancerManager.getRoundRobinLoadBalancer(interfaceName).select(instanceList);
-        // 根据服务实例，选出对应的创建链接的 RpcClient
-        RpcClient rpcClient = rpcClientManager.getClient(instance);
+        // 保留原始服务实例列表，在可尝试服务实例列表中选择一个实例
+        attempInstanceList = List.copyOf(instanceList);
+        // 获取当前服务独立使用的负载均衡器，再从可尝试服务实例列表中选择实例。
+        LoadBalancer balancer = loadBalancerManager.getRoundRobinLoadBalancer(interfaceName);
 
-        // RpcClient 发送调用请求
-        RpcMessage responseMessage = rpcClient.send(requestMessage);
+        // RpcClient 发送调用请求，且在发生允许重试的错误时进行重试
+        RpcMessage responseMessage = null;
+        for (int i = 0; i <= retryPolicy.getMaxRetryTimes(); i++) {
+            ServiceInstance instance = balancer.select(attempInstanceList);
+            // 根据服务实例，选出对应的创建链接的 RpcClient
+            RpcClient rpcClient = rpcClientManager.getClient(instance);
+            try {
+                responseMessage = rpcClient.send(requestMessage);
+                break;
+            }catch (RpcException exception) {
+                if (retryPolicy.shouldRetry(exception)) {
+                    attempInstanceList.remove(instance);
+                }else {
+                    throw new RpcException("RPC 执行异常", exception);
+                }
+            }
+        }
 
         // 校验响应是否属于本次调用，且响应消息结构符合预期。
         if (responseMessage == null) {
