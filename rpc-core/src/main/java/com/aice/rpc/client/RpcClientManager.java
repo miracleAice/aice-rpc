@@ -53,4 +53,28 @@ public class RpcClientManager {
         }
         return rpcClient;
     }
+
+    /**
+     * 关闭管理器保存的全部 RPC 客户端连接，并清空连接缓存。
+     */
+    public void close() {
+        RuntimeException closeException = null;
+        for (RpcClient rpcClient : clients.values()) {
+            try {
+                rpcClient.close();
+            } catch (RuntimeException exception) {
+                // 一个连接关闭失败时，仍继续释放其他连接。
+                if (closeException == null) {
+                    closeException = exception;
+                } else {
+                    closeException.addSuppressed(exception);
+                }
+            }
+        }
+        clients.clear();
+
+        if (closeException != null) {
+            throw closeException;
+        }
+    }
 }
