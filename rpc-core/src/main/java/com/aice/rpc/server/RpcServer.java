@@ -177,7 +177,7 @@ public class RpcServer {
              DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
              DataInputStream inputStream = new DataInputStream(socket.getInputStream())) {
 
-            // 长连接实现：在此处增加读取循环；每轮循环解码一条请求、处理并写回一条响应。
+            // 长连接实现：在此处增加读取循环；每轮循环解码一个请求、处理并写回一条响应。
             // 仅在客户端关闭连接或发生不可恢复的读取异常时结束循环，随后由 try-with-resources 关闭资源。
             while (true) {
                 // 从输入流中读取并解码完整请求消息。
