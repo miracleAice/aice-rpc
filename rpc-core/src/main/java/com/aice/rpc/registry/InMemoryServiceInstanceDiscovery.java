@@ -29,7 +29,7 @@ public class InMemoryServiceInstanceDiscovery implements ServiceInstanceDiscover
         if (instance == null) {
             throw new IllegalArgumentException("用于服务注册的 instance 为空");
         }
-        if (instance.getHost() == null || instance.getHost().isBlank()) {
+        if (instance.getHost().isBlank()) {
             throw new IllegalArgumentException("用于服务注册的 host 为空");
         }
         if (instance.getPort() < 1 || instance.getPort() > 65535) {
