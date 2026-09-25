@@ -1,5 +1,8 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.loadbalance.LoadBalancerManager;
+import com.aice.rpc.registry.ServiceInstanceDiscovery;
+
 import java.lang.reflect.Proxy;
 
 /**
@@ -10,10 +13,26 @@ import java.lang.reflect.Proxy;
  */
 public class RpcProxyUtil {
 
-    private final RpcClient rpcClient;
+    private final RpcClientManager clientManager;
+    private final ServiceInstanceDiscovery discovery;
+    private final LoadBalancerManager loadBalancerManager;
 
-    public RpcProxyUtil(RpcClient rpcClient) {
-        this.rpcClient = rpcClient;
+    public RpcProxyUtil(RpcClientManager clientManager,
+                        ServiceInstanceDiscovery discovery,
+                        LoadBalancerManager loadBalancerManager) {
+        if (clientManager == null) {
+            throw new IllegalArgumentException("RpcClientManager 不能为空");
+        }
+        if (discovery == null) {
+            throw new IllegalArgumentException("ServiceInstanceDiscovery 不能为空");
+        }
+        if (loadBalancerManager == null) {
+            throw new IllegalArgumentException("LoadBalancerManager 不能为空");
+        }
+
+        this.clientManager = clientManager;
+        this.discovery = discovery;
+        this.loadBalancerManager = loadBalancerManager;
     }
 
     /**
@@ -36,7 +55,7 @@ public class RpcProxyUtil {
         Object proxy = Proxy.newProxyInstance(
                         target.getClassLoader(),
                         new Class<?>[]{target},
-                        new RpcClientInvocationHandler(this.rpcClient));
+                        new RpcClientInvocationHandler(clientManager, discovery, loadBalancerManager));
         return target.cast(proxy);
     }
 

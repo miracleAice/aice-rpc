@@ -1,11 +1,15 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.loadbalance.LoadBalancerManager;
 import com.aice.rpc.protocol.RpcMessage;
 import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
+import com.aice.rpc.registry.ServiceInstance;
+import com.aice.rpc.registry.ServiceInstanceDiscovery;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -16,11 +20,16 @@ import java.util.concurrent.atomic.AtomicLong;
  */
 public class RpcClientInvocationHandler implements InvocationHandler {
     private static final AtomicLong REQUEST_ID_GENERATOR = new AtomicLong(0);
+    private final RpcClientManager rpcClientManager;
+    private final ServiceInstanceDiscovery discovery;
+    private final LoadBalancerManager loadBalancerManager;
 
-    private final RpcClient rpcClient;
-
-    public RpcClientInvocationHandler(RpcClient rpcClient) {
-        this.rpcClient = rpcClient;
+    public RpcClientInvocationHandler(RpcClientManager rpcClientManager,
+                                      ServiceInstanceDiscovery discovery,
+                                      LoadBalancerManager loadBalancerManager) {
+        this.rpcClientManager = rpcClientManager;
+        this.discovery = discovery;
+        this.loadBalancerManager = loadBalancerManager;
     }
 
     /**
@@ -50,6 +59,8 @@ public class RpcClientInvocationHandler implements InvocationHandler {
                 }
             }
         }
+
+        // ============== 消息组装阶段 ==============
         /*
           从被拦截的方法和实际参数中提取远程调用所需的信息：
           1. 服务接口全限定名（com.aice.rpc.example.service.CalculatorService）
@@ -73,7 +84,18 @@ public class RpcClientInvocationHandler implements InvocationHandler {
                 0,
                 rpcRequest
         );
+
+        // ============== 发送阶段 ==============
+        // 根据 serviceName 进行服务发现
+        List<ServiceInstance> instanceList = discovery.discover(interfaceName);
+        // 获取当前服务独立使用的负载均衡器，再从服务实例列表中选择实例。
+        ServiceInstance instance = loadBalancerManager.getRoundRobinLoadBalancer(interfaceName).select(instanceList);
+        // 根据服务实例，选出对应的创建链接的 RpcClient
+        RpcClient rpcClient = rpcClientManager.getClient(instance);
+
+        // RpcClient 发送调用请求
         RpcMessage responseMessage = rpcClient.send(requestMessage);
+
         // 校验响应是否属于本次调用，且响应消息结构符合预期。
         if (responseMessage == null) {
             throw new RuntimeException("服务端未返回消息");
