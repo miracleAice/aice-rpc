@@ -1,5 +1,6 @@
 package com.aice.rpc.registry;
 
+import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 /**
@@ -9,7 +10,8 @@ import lombok.Getter;
  * Created on  2026/9/25 14:15
  */
 @Getter
-public class ServiceInstance {
+@EqualsAndHashCode
+public final class ServiceInstance {
     private final String host;
     private final int port;
 
