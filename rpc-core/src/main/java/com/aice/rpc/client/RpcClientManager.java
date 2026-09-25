@@ -1,5 +1,6 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.exception.RpcConnectionException;
 import com.aice.rpc.registry.ServiceInstance;
 
 import java.util.Map;
@@ -49,7 +50,7 @@ public class RpcClientManager {
 
         RpcClient rpcClient = clients.get(instance);
         if (rpcClient == null) {
-            throw new IllegalStateException("服务实例尚未建立 RPC 客户端连接");
+            throw new RpcConnectionException("服务实例尚未建立 RPC 客户端连接");
         }
         return rpcClient;
     }

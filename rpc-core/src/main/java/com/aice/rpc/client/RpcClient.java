@@ -1,5 +1,8 @@
 package com.aice.rpc.client;
 
+import com.aice.rpc.exception.RpcConnectionException;
+import com.aice.rpc.exception.RpcException;
+import com.aice.rpc.exception.RpcTimeoutException;
 import com.aice.rpc.protocol.RpcDecoder;
 import com.aice.rpc.protocol.RpcEncoder;
 import com.aice.rpc.protocol.RpcMessage;
@@ -74,7 +77,7 @@ public class RpcClient {
                 }
             }
             // 将底层网络异常转换为调用方更容易理解的 RPC 客户端异常，同时保留原始异常原因。
-            throw new IllegalStateException("客户端连接失败", exception);
+            throw new RpcConnectionException("客户端连接失败", exception);
         }
         // 启动唯一的响应读取线程。
         // 该线程是 inputStream 唯一的读取方，循环解码响应并按 requestId 完成 pendingRequests 中的 Future。
@@ -109,11 +112,11 @@ public class RpcClient {
         lock.lock();
         try {
             if (closed || clientSocket.isClosed()) {
-                throw new IllegalStateException("客户端连接已关闭");
+                throw new RpcConnectionException("客户端连接已关闭");
             }
             // 先登记再写入，避免快速响应找不到对应 Future。
             if (pendingRequest.putIfAbsent(requestId, requestFuture) != null) {
-                throw new IllegalStateException("请求编号已存在：" + requestId);
+                throw new RpcException("请求编号已存在：" + requestId);
             }
             // 将 RpcMessage 编码为自定义协议字节：写入协议头，并序列化消息体
             byte[] clientBytes = encoder.encode(requestMessage);
@@ -125,13 +128,17 @@ public class RpcClient {
         } catch (IOException exception) {
             // 写入失败时清理本次等待请求。
             pendingRequest.remove(requestId, requestFuture);
-            requestFuture.completeExceptionally(exception);
-            throw new RuntimeException("客户端写入失败", exception);
+            RpcConnectionException rpcException = new RpcConnectionException("客户端写入失败", exception);
+            requestFuture.completeExceptionally(rpcException);
+            throw rpcException;
         } catch (RuntimeException exception) {
             // 编码失败或连接状态异常时，清理可能已登记的本次请求。
             pendingRequest.remove(requestId, requestFuture);
-            requestFuture.completeExceptionally(exception);
-            throw exception;
+            RpcException rpcException = exception instanceof RpcException
+                    ? (RpcException) exception
+                    : new RpcException("客户端编码请求失败", exception);
+            requestFuture.completeExceptionally(rpcException);
+            throw rpcException;
         } finally {
             // 写入是否成功都要释放锁，其他请求才能继续写入同一连接。
             lock.unlock();
@@ -147,13 +154,17 @@ public class RpcClient {
             // requestFuture.get 抛出 InterruptedException 后会清除中断标记，
             // 此处恢复调用 send 的当前线程标记。让上层代码知道这个线程曾被中断
             Thread.currentThread().interrupt();
-            throw new RuntimeException("客户端等待响应时被中断", exception);
+            throw new RpcException("客户端等待响应时被中断", exception);
         } catch (ExecutionException exception) {
-            throw new RuntimeException("客户端处理响应失败", exception.getCause());
+            Throwable cause = exception.getCause();
+            if (cause instanceof RpcException) {
+                throw (RpcException) cause;
+            }
+            throw new RpcException("客户端处理响应失败", cause);
         } catch (TimeoutException exception) {
             // 超时后删除等待记录，避免迟迟不返回的请求长期占用内存。
             pendingRequest.remove(requestId, requestFuture);
-            throw new RuntimeException("客户端等待请求超时", exception);
+            throw new RpcTimeoutException("客户端等待请求超时", exception);
         }
     }
 
@@ -178,7 +189,7 @@ public class RpcClient {
             pendingRequest.clear();
         }
         if (closeException != null) {
-            throw new RuntimeException("连接关闭失败", closeException);
+            throw new RpcConnectionException("连接关闭失败", closeException);
         }
     }
 
@@ -198,11 +209,14 @@ public class RpcClient {
             return true;
         } catch (IOException | RuntimeException exception) {
             // 读取失败时终止连接并通知所有等待请求。
+            RpcException rpcException = exception instanceof IOException
+                    ? new RpcConnectionException("客户端读取响应失败", exception)
+                    : new RpcException("客户端处理响应失败", exception);
             // 先设置关闭状态并持有写锁，确保不会有新请求在清理过程中进入 Map。
             lock.lock();
             try {
                 closed = true;
-                pendingRequest.values().forEach(future -> future.completeExceptionally(exception));
+                pendingRequest.values().forEach(future -> future.completeExceptionally(rpcException));
                 pendingRequest.clear();
             } finally {
                 lock.unlock();
@@ -212,11 +226,11 @@ public class RpcClient {
             try {
                 clientSocket.close();
             } catch (IOException closeException) {
-                exception.addSuppressed(closeException);
+                rpcException.addSuppressed(closeException);
             }
             // 连接已由 close 主动关闭时不记录错误；其他读取失败记录完整异常。
             if (!socketAlreadyClosed) {
-                log.warn("响应读取线程已停止", exception);
+                log.warn("响应读取线程已停止", rpcException);
             }
             return false;
         }

@@ -1,6 +1,8 @@
 package com.aice.rpc.client;
 
 import com.aice.rpc.loadbalance.LoadBalancerManager;
+import com.aice.rpc.exception.RpcException;
+import com.aice.rpc.exception.RpcRemoteException;
 import com.aice.rpc.protocol.RpcMessage;
 import com.aice.rpc.protocol.RpcRequest;
 import com.aice.rpc.protocol.RpcResponse;
@@ -98,22 +100,22 @@ public class RpcClientInvocationHandler implements InvocationHandler {
 
         // 校验响应是否属于本次调用，且响应消息结构符合预期。
         if (responseMessage == null) {
-            throw new RuntimeException("服务端未返回消息");
+            throw new RpcException("服务端未返回消息");
         }
         if (responseMessage.getMessageType() != RpcMessage.MESSAGE_RESPONSE) {
-            throw new RuntimeException("服务端返回的不是响应消息");
+            throw new RpcException("服务端返回的不是响应消息");
         }
         if (requestId != responseMessage.getRequestId()) {
-            throw new RuntimeException("响应与请求不匹配");
+            throw new RpcException("响应与请求不匹配");
         }
         if (!(responseMessage.getBody() instanceof RpcResponse)) {
-            throw new RuntimeException("消息体类型不正确");
+            throw new RpcException("消息体类型不正确");
         }
         // 类型校验通过后，安全取得 RPC 响应体。
         RpcResponse rpcResponse = (RpcResponse)responseMessage.getBody();
         // 服务端返回失败或未知状态时，向接口调用方抛出异常。
         if (rpcResponse.getStatus() != RpcResponse.SUCCESS) {
-            throw new RuntimeException(rpcResponse.getErrorMessage());
+            throw new RpcRemoteException(rpcResponse.getErrorMessage());
         }
         // 服务端调用成功时，将远程返回值作为接口方法返回值。
         return rpcResponse.getReturnValue();
